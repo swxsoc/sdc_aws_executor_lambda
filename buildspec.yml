@@ -1,0 +1,48 @@
+version: 0.2
+
+phases:
+  pre_build:
+    commands:
+      - echo Installing CI/CD Dependencies...
+      - pip3 install flake8 black pytest pytest-astropy pytest-cov
+      - pip3 install pytest pytest-astropy pytest-cov
+      - pip3 install -r requirements.txt
+      - echo ________________________________
+
+      - echo Linting with Black...
+      - black --check --diff lambda_function
+      - echo ________________________________
+      
+      - echo Linting with Flake...
+      - flake8 --count --max-line-length 88 lambda_function --exclude lambda_function_test_script.py
+      - echo ________________________________
+    
+  build:
+    commands:
+      - REGION=us-east-1
+      - echo Login to Private ECR $REGION
+      - aws ecr get-login-password --region $REGION | docker login --username AWS --password-stdin 351967858401.dkr.ecr.$REGION.amazonaws.com
+      - echo ________________________________
+      
+      - echo Create Date Tag
+      - export TAG=$(date +%Y-%m-%d-%H-%M-%S)
+      - echo ________________________________
+
+      - echo Build Docker Image
+      - docker build -t 351967858401.dkr.ecr.$REGION.amazonaws.com/sdc_aws_executor_lambda:latest lambda_function/.
+      
+      - echo Tagging Docker Image...
+      - docker tag 351967858401.dkr.ecr.$REGION.amazonaws.com/sdc_aws_executor_lambda:latest 351967858401.dkr.ecr.$REGION.amazonaws.com/sdc_aws_executor_lambda:$TAG
+
+      - echo Pushing the Docker image with Tags...
+      - docker push 351967858401.dkr.ecr.$REGION.amazonaws.com/sdc_aws_executor_lambda:latest
+      - docker push 351967858401.dkr.ecr.$REGION.amazonaws.com/sdc_aws_executor_lambda:$TAG
+      - echo ________________________________
+      
+      - echo Updating Deployment
+      - aws codebuild start-build --project-name build_sdc_aws_pipeline_architecture --region us-east-2 --environment-variables-override name=LAMBDA_PIPELINE,value=executor,type=PLAINTEXT name=TAG,value=$TAG,type=PLAINTEXT
+      - echo ________________________________
+
+  post_build:
+    commands:
+      - echo Build Successful - Lambda Successfully Built and Pushed to ECR

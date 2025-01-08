@@ -1,0 +1,7 @@
+pytest
+pytest-astropy 
+pytest-cov
+flake8 
+black
+swxsoc @ git+https://github.com/dbarrous/swxsoc.git@grafana-annotation-api
+pandas==2.2.3
