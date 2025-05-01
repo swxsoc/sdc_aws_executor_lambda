@@ -86,6 +86,7 @@ class Executor:
         self.function_mapping = {
             "import_GOES_data_to_timestream": self.import_GOES_data_to_timestream,
             "create_GOES_data_annotations": self.create_GOES_data_annotations,
+            "generate_cloc_report_and_upload": self.generate_cloc_report_and_upload,
         }
         try:
             # Initialize Grafana API Key
