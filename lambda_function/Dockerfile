@@ -9,6 +9,10 @@ ARG FUNCTION_DIR="/lambda_function/"
 
 COPY requirements.txt ${ROOT}
 
+
+# Install cloc for code analysis
+RUN apt-get update -y && apt-get install -y cloc
+
 # Update pip and install setuptools
 RUN pip install --upgrade pip setuptools
 

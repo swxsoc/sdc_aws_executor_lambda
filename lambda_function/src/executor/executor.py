@@ -6,6 +6,13 @@ which function to execute based on the event rule.
 import os
 import json
 import re
+import csv
+import shutil
+import subprocess
+import tempfile
+import requests
+import logging
+import traceback
 from typing import Any, Dict
 
 from astropy import units as u
@@ -184,3 +191,98 @@ class Executor:
         except Exception as e:
             log.error("Error creating GOES data annotations", exc_info=True)
             raise
+    
+    
+    @staticmethod        
+    def generate_cloc_report_and_upload() -> str:
+        orgs_or_users = os.environ.get('GITHUB_ORGS_USERS', '').split(',')
+        s3_bucket = os.environ.get('S3_BUCKET')
+        s3_key = os.environ.get('S3_KEY', 'combined_cloc_report.csv')
+
+        if not orgs_or_users or not orgs_or_users[0]:
+            raise ValueError('GITHUB_ORGS_USERS environment variable not set')
+        if not s3_bucket:
+            raise ValueError('S3_BUCKET environment variable not set')
+
+        tmp_dir = tempfile.mkdtemp(dir='/tmp', prefix='repo-loc-')
+        final_csv_path = os.path.join(tmp_dir, 'combined_cloc_report.csv')
+        headers = {}
+        base_url = 'https://api.github.com'
+
+        try:
+            with open(final_csv_path, 'w', newline='') as csvfile:
+                csv_writer = csv.writer(csvfile)
+                header_written = False
+
+                for target in orgs_or_users:
+                    target = target.strip()
+                    repos = []
+
+                    # Try organization
+                    org_url = f'{base_url}/orgs/{target}/repos?type=sources'
+                    response = requests.get(org_url, headers=headers)
+
+                    if response.status_code == 200:
+                        repos = response.json()
+                    elif response.status_code == 404:
+                        # Try user
+                        user_url = f'{base_url}/users/{target}/repos?type=sources'
+                        user_response = requests.get(user_url, headers=headers)
+                        if user_response.status_code == 200:
+                            repos = user_response.json()
+                        else:
+                            print(f"⚠️ Could not find user/org: {target}")
+                            continue
+                    else:
+                        print(f"⚠️ Failed to fetch repos for {target}: {response.status_code}")
+                        continue
+
+                    print(f"📦 Found {len(repos)} repos for {target}")
+
+                    for repo in repos:
+                        if repo['fork'] or repo['archived']:
+                            continue
+
+                        repo_name = repo['name']
+                        destination = os.path.join(tmp_dir, repo_name)
+                        report_file = os.path.join(tmp_dir, f"{repo_name}.csv")
+
+                        try:
+                            # Clone repo
+                            clone_url = repo['clone_url']  # Use public HTTPS URL
+                            clone_process = subprocess.run(
+                                ['git', 'clone', '--depth', '1', '--quiet', clone_url, destination],
+                                capture_output=True, text=True
+                            )
+                            if clone_process.returncode != 0:
+                                print(f"❌ Failed to clone {repo_name}: {clone_process.stderr}")
+                                continue
+
+                            # Run cloc
+                            cloc_process = subprocess.run(
+                                ['cloc', destination, '--quiet', '--csv', f"--report-file={report_file}"],
+                                capture_output=True, text=True
+                            )
+                            if os.path.exists(report_file) and cloc_process.returncode == 0:
+                                with open(report_file, 'r') as repo_csv:
+                                    csv_reader = csv.reader(repo_csv)
+                                    for row in csv_reader:
+                                        if row and not row[0].startswith('#'):
+                                            if not header_written:
+                                                csv_writer.writerow(['org_name', 'repo_name'] + row)
+                                                header_written = True
+                                            else:
+                                                csv_writer.writerow([target, repo_name] + row)
+                            else:
+                                print(f"⚠️ cloc failed on {repo_name}")
+                        finally:
+                            shutil.rmtree(destination, ignore_errors=True)
+
+            # Upload to S3
+            s3 = boto3.client('s3')
+            s3.upload_file(final_csv_path, s3_bucket, s3_key)
+            print(f"✅ Uploaded CSV to s3://{s3_bucket}/{s3_key}")
+            return f"s3://{s3_bucket}/{s3_key}"
+
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
