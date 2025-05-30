@@ -119,7 +119,7 @@ class Executor:
 
         log.info("Importing GOES data to Timestream")
         try:
-            goes_json_data = pd.read_json("https://services.swpc.noaa.gov/json/goes/primary/xrays-3-day.json")
+            goes_json_data = pd.read_json("https://services.swpc.noaa.gov/json/goes/primary/xrays-1-day.json")
             last_day = Time((Time.now() - TimeDelta(1 * u.day)).iso[0:10])
 
             goes_short = goes_json_data[goes_json_data["energy"] == "0.05-0.4nm"]
