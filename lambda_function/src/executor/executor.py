@@ -99,7 +99,7 @@ class Executor:
             # Set Grafana API Key environment variable
             os.environ["GRAFANA_API_KEY"] = secret["grafana_api_key"]
             log.info("Grafana API Key loaded")
-            os.environ['UDL_KEY'] = secret['udl-credentials']
+            os.environ['UDL_KEY'] = secret['basicauth']
             log.info("UDL API Key loaded")
         except Exception as e:
             log.error("Error initializing Grafana API Key", exc_info=True)
