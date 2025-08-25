@@ -92,17 +92,16 @@ class Executor:
         try:
             # Initialize Grafana API Key
             session = boto3.session.Session()
-            secret_arn = os.getenv("SECRET_ARN", None)
-            client = session.client(service_name="secretsmanager")
-            response = client.get_secret_value(SecretId=secret_arn)
-            secret = json.loads(response["SecretString"])
-            # Set Grafana API Key environment variable
-            os.environ["GRAFANA_API_KEY"] = secret["grafana_api_key"]
-            log.info("Grafana API Key loaded")
-            os.environ['UDL_KEY'] = secret['udl-credentials']
-            log.info("UDL API Key loaded")
+            env_to_ids = {"SECRET_ARN_GRAFANA": "grafana_api_key", "SECRET_ARN_UDL": "basicauth"}
+            for key, value in env_to_ids.items():
+                secret_arn = os.getenv(key, None)
+                client = session.client(service_name="secretsmanager")
+                response = client.get_secret_value(SecretId=secret_arn)
+                secret = json.loads(response["SecretString"])
+                os.environ[value.upper()] = secret[value]
+                log.info(f"{value} API Key loaded")
         except Exception as e:
-            log.error("Error initializing Grafana API Key", exc_info=True)
+            log.error("Error reading secrets", exc_info=True)
             
 
     def execute(self) -> None:
@@ -119,7 +118,7 @@ class Executor:
         """
         Imports data from UDL, grabs some REACH data and imports to Timestream
         """
-        basicAuth = os.environ['UDL_KEY']
+        basicAuth = os.environ['basicauth'.upper()]
         baseurl = 'https://unifieddatalibrary.com/udl/spaceenvobservation'
 
         tdelay = TimeDelta(2 * u.hour)
