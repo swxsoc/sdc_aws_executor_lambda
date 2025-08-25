@@ -131,23 +131,28 @@ class Executor:
 
         url = f'{baseurl}?obTime={obtime}&idSensor={sensor}&source=Aerospace&dataMode=REAL&descriptor=QUICKLOOK&sort=obTime'
         log.info(f"Requesting REACH data from UDL at {url}")
-        json_data = requests.get(url, headers={'Authorization':basicAuth}, verify=False)
-        log.file(f"Received {len(json_data)} entries.")
-        available_obs = set([t['seoList'][0]['obDescription'] for t in json_data])
-        for this_ob in available_obs:
-            times = [Time(t['obTime']) for t in json_data if t['seoList'][0]['obDescription'] == this_ob]
-            ts = TimeSeries(time = times)
-            ts.meta['obDescription'] = this_ob
-            ob_value = [t['seoList'][0]['obValue'] for t in json_data if t['seoList'][0]['obDescription'] == this_ob]
-            ts['value'] = ob_value
-            key_list = ['lat', 'lon', 'alt', 'observatoryName', 'idSensor']
-            for this_key in key_list:
-                ts[this_key] = [t[this_key] for t in json_data if t['seoList'][0]['obDescription'] == this_ob]
-            if len(ts) > 0:
-                instr_name = str(this_ob).split(')')[0] + ')'
-                util.record_timeseries(ts, ts_name="REACH", instrument_name=instr_name)
+        response = requests.get(url, headers={'Authorization':basicAuth}, verify=False)
+        if response:
+            json_data = response.json()
+            log.info(f"Received {len(json_data)} entries.")
+            available_obs = set([t['seoList'][0]['obDescription'] for t in json_data])
+            for this_ob in available_obs:
+                times = [Time(t['obTime']) for t in json_data if t['seoList'][0]['obDescription'] == this_ob]
+                ts = TimeSeries(time = times)
+                ts.meta['obDescription'] = this_ob
+                ob_value = [t['seoList'][0]['obValue'] for t in json_data if t['seoList'][0]['obDescription'] == this_ob]
+                ts['value'] = ob_value
+                key_list = ['lat', 'lon', 'alt', 'observatoryName', 'idSensor']
+                for this_key in key_list:
+                    ts[this_key] = [t[this_key] for t in json_data if t['seoList'][0]['obDescription'] == this_ob]
+                if len(ts) > 0:
+                    instr_name = str(this_ob).split(')')[0] + ')'
+                    util.record_timeseries(ts, ts_name="REACH", instrument_name=instr_name)
+        else:
+            log.info(f"No response received from {url}")
 
-
+    @staticmethod
+    def import_GOES_data_to_timestream():
         """
         Imports GOES data to Timestream.
         """
