@@ -87,6 +87,7 @@ class Executor:
             "import_GOES_data_to_timestream": self.import_GOES_data_to_timestream,
             "create_GOES_data_annotations": self.create_GOES_data_annotations,
             "generate_cloc_report_and_upload": self.generate_cloc_report_and_upload,
+            "import_UDL_REACH_to_timestream": self.import_UDL_REACH_to_timestream,
         }
         try:
             # Initialize Grafana API Key
@@ -98,6 +99,8 @@ class Executor:
             # Set Grafana API Key environment variable
             os.environ["GRAFANA_API_KEY"] = secret["grafana_api_key"]
             log.info("Grafana API Key loaded")
+            os.environ['UDL_KEY'] = secret['udl-credentials']
+            log.info("UDL API Key loaded")
         except Exception as e:
             log.error("Error initializing Grafana API Key", exc_info=True)
             
@@ -112,7 +115,45 @@ class Executor:
         self.function_mapping[self.function_name]()
 
     @staticmethod
-    def import_GOES_data_to_timestream() -> None:
+    def import_UDL_REACH_to_timestream() -> None:
+        """
+        Imports data from UDL, grabs some REACH data and imports to Timestream
+        """
+        basicAuth = os.environ['UDL_KEY']
+        baseurl = 'https://unifieddatalibrary.com/udl/spaceenvobservation'
+
+        tdelay = TimeDelta(2 * u.hour)
+        dt = TimeDelta(1 * u.hour)
+        start_time = (Time.now() - tdelay)
+        end_time = start_time + dt
+        obtime = start_time.strftime('%Y-%m-%dT%H:%M:%S') + '.000Z..'
+        obtime += end_time.strftime('%Y-%m-%dT%H:%M:%S') + '.000Z'
+        sensor = 'REACH-171'
+
+        url = f'{baseurl}?obTime={obtime}&idSensor={sensor}&source=Aerospace&dataMode=REAL&descriptor=QUICKLOOK&sort=obTime'
+        log.info(f"Requesting REACH data from UDL at {url}")
+        response = requests.get(url, headers={'Authorization':basicAuth}, verify=False)
+        if response:
+            json_data = response.json()
+            log.info(f"Received {len(json_data)} entries.")
+            available_obs = set([t['seoList'][0]['obDescription'] for t in json_data])
+            for this_ob in available_obs:
+                times = [Time(t['obTime']) for t in json_data if t['seoList'][0]['obDescription'] == this_ob]
+                ts = TimeSeries(time = times)
+                ts.meta['obDescription'] = this_ob
+                ob_value = [t['seoList'][0]['obValue'] for t in json_data if t['seoList'][0]['obDescription'] == this_ob]
+                ts['value'] = ob_value
+                key_list = ['lat', 'lon', 'alt', 'observatoryName', 'idSensor']
+                for this_key in key_list:
+                    ts[this_key] = [t[this_key] for t in json_data if t['seoList'][0]['obDescription'] == this_ob]
+                if len(ts) > 0:
+                    instr_name = str(this_ob).split(')')[0] + ')'
+                    util.record_timeseries(ts, ts_name="REACH", instrument_name=instr_name)
+        else:
+            log.info(f"No response received from {url}")
+
+    @staticmethod
+    def import_GOES_data_to_timestream():
         """
         Imports GOES data to Timestream.
         """
