@@ -48,7 +48,7 @@ Manages solar flare annotations:
 
 
 ### import_UDL_REACH_to_timestream
-Likely a temporary addition. Gets REACH data from the UDL.
+Likely a temporary addition. Gets REACH data from the UDL. Grabs data from 2 hours ago to 1 hour ago.
 
 
 ## Error Handling
