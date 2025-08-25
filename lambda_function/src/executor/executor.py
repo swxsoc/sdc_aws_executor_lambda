@@ -122,7 +122,7 @@ class Executor:
         baseurl = 'https://unifieddatalibrary.com/udl/spaceenvobservation'
 
         tdelay = TimeDelta(2 * u.hour)
-        dt = TimeDelta(1 * u.hour)
+        dt = TimeDelta(10 * u.minute)
         start_time = (Time.now() - tdelay)
         end_time = start_time + dt
         obtime = start_time.strftime('%Y-%m-%dT%H:%M:%S') + '.000Z..'
