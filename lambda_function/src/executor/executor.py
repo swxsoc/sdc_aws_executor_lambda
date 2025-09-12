@@ -88,6 +88,7 @@ class Executor:
             "create_GOES_data_annotations": self.create_GOES_data_annotations,
             "generate_cloc_report_and_upload": self.generate_cloc_report_and_upload,
             "import_UDL_REACH_to_timestream": self.import_UDL_REACH_to_timestream,
+            "import_stix_to_timestream": self.import_stix_to_timestream,
         }
         try:
             # Initialize Grafana API Key
@@ -112,6 +113,24 @@ class Executor:
             raise ValueError(f"Function '{self.function_name}' is not recognized.")
         log.info(f"Executing function: {self.function_name}")
         self.function_mapping[self.function_name]()
+
+    @staticmethod
+    def import_stix_to_timestream() -> None:
+        """Imports latest stix data from stix datacenter and import to Timestream"""
+        log.info("Importing SO/STIX data to Timestream")
+        from stixdcpy.quicklook import LightCurves
+
+        dt = TimeDelta(20 * u.min)
+        delay = TimeDelta(12 * u.hr)
+        now = Time.now()
+        tr = [now - delay - dt, now - delay]
+        lc = LightCurves.from_sdc(start_utc=tr[0].isot, end_utc=tr[1].isot, ltc=True)
+        if lc.data:
+            stix_ts = TimeSeries(time = lc.time, data={f'qlc{i}': this_data for i, this_data in enumerate(lc.counts)})
+            log.info(f"Received stix data from {stix_ts.time[0]} to {stix_ts.time[-1]}, {len(stix_ts)} entries")
+            util.record_timeseries(stix_ts, ts_name="solo", instrument_name="stix")
+        else:
+            log.info("No stix data received.")
 
     @staticmethod
     def import_UDL_REACH_to_timestream() -> None:
