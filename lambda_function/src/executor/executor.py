@@ -88,6 +88,7 @@ class Executor:
             "create_GOES_data_annotations": self.create_GOES_data_annotations,
             "generate_cloc_report_and_upload": self.generate_cloc_report_and_upload,
             "import_UDL_REACH_to_timestream": self.import_UDL_REACH_to_timestream,
+            "import_stix_to_timestream": self.import_stix_to_timestream,
         }
         try:
             # Initialize Grafana API Key
@@ -112,6 +113,24 @@ class Executor:
             raise ValueError(f"Function '{self.function_name}' is not recognized.")
         log.info(f"Executing function: {self.function_name}")
         self.function_mapping[self.function_name]()
+
+    @staticmethod
+    def import_stix_to_timestream() -> None:
+        """Imports latest stix data from stix datacenter and import to Timestream"""
+        log.info("Importing SO/STIX data to Timestream")
+        from stixdcpy.quicklook import LightCurves
+
+        dt = TimeDelta(20 * u.min)
+        delay = TimeDelta(12 * u.hr)
+        now = Time.now()
+        tr = [now - delay - dt, now - delay]
+        lc = LightCurves.from_sdc(start_utc=tr[0].isot, end_utc=tr[1].isot, ltc=True)
+        if lc.data:
+            stix_ts = TimeSeries(time = lc.time, data={f'qlc{i}': this_data for i, this_data in enumerate(lc.counts)})
+            log.info(f"Received stix data from {stix_ts.time[0]} to {stix_ts.time[-1]}, {len(stix_ts)} entries")
+            util.record_timeseries(stix_ts, ts_name="solo", instrument_name="stix")
+        else:
+            log.info("No stix data received.")
 
     @staticmethod
     def import_UDL_REACH_to_timestream() -> None:
@@ -159,8 +178,8 @@ class Executor:
 
         log.info("Importing GOES data to Timestream")
         try:
-            goes_json_data = pd.read_json("https://services.swpc.noaa.gov/json/goes/primary/xrays-1-day.json")
-            last_day = Time((Time.now() - TimeDelta(1 * u.day)).iso[0:10])
+            goes_json_data = pd.read_json("https://services.swpc.noaa.gov/json/goes/primary/xrays-6-hour.json")
+            last_hour = Time.now() - TimeDelta(1 * u.hour)
 
             goes_short = goes_json_data[goes_json_data["energy"] == "0.05-0.4nm"]
             goes_long = goes_json_data[goes_json_data["energy"] == "0.1-0.8nm"]
@@ -169,13 +188,16 @@ class Executor:
             tsa = TimeSeries(time=time_tags, data={"xrsa": goes_short["flux"].values * u.W / u.m**2})
             tsb = TimeSeries(time=time_tags, data={"xrsb": goes_long["flux"].values * u.W / u.m**2})
 
-            tsa_lastday = tsa.loc[last_day:last_day + TimeDelta(1 * u.day)]
-            tsb_lastday = tsb.loc[last_day:last_day + TimeDelta(1 * u.day)]
+            tsa_last = tsa.loc[last_hour:Time.now()]
+            tsb_last = tsb.loc[last_hour:Time.now()]
 
-            if len(tsa_lastday) > 0:
-                util.record_timeseries(tsa_lastday, ts_name="GOES", instrument_name="goes xrsa")
-                util.record_timeseries(tsb_lastday, ts_name="GOES", instrument_name="goes xrsb")
-            log.info("GOES data imported successfully")
+            if len(tsa_last) > 0:
+                util.record_timeseries(tsa_last, ts_name="GOES", instrument_name="goes xrsa")
+                log.info(f"GOES xrsa data import from {tsa_last.time[0]} to {tsa_last.time[-1]}, {len(tsa_last)} entries")
+                util.record_timeseries(tsb_last, ts_name="GOES", instrument_name="goes xrsb")
+                log.info(f"GOES xrsb data import from {tsb_last.time[0]} to {tsb_last.time[-1]}, {len(tsb_last)} entries")
+            else:
+                log.info("No GOES data!")
         except Exception as e:
             log.error("Error importing GOES data to Timestream", exc_info=True)
             raise
