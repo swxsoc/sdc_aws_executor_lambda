@@ -178,8 +178,8 @@ class Executor:
 
         log.info("Importing GOES data to Timestream")
         try:
-            goes_json_data = pd.read_json("https://services.swpc.noaa.gov/json/goes/primary/xrays-1-day.json")
-            last_day = Time((Time.now() - TimeDelta(1 * u.day)).iso[0:10])
+            goes_json_data = pd.read_json("https://services.swpc.noaa.gov/json/goes/primary/xrays-6-hour.json")
+            last_hour = Time.now() - TimeDelta(1 * u.hour)
 
             goes_short = goes_json_data[goes_json_data["energy"] == "0.05-0.4nm"]
             goes_long = goes_json_data[goes_json_data["energy"] == "0.1-0.8nm"]
@@ -188,13 +188,16 @@ class Executor:
             tsa = TimeSeries(time=time_tags, data={"xrsa": goes_short["flux"].values * u.W / u.m**2})
             tsb = TimeSeries(time=time_tags, data={"xrsb": goes_long["flux"].values * u.W / u.m**2})
 
-            tsa_lastday = tsa.loc[last_day:last_day + TimeDelta(1 * u.day)]
-            tsb_lastday = tsb.loc[last_day:last_day + TimeDelta(1 * u.day)]
+            tsa_last = tsa.loc[last_hour:Time.now()]
+            tsb_last = tsb.loc[last_hour:Time.now()]
 
-            if len(tsa_lastday) > 0:
-                util.record_timeseries(tsa_lastday, ts_name="GOES", instrument_name="goes xrsa")
-                util.record_timeseries(tsb_lastday, ts_name="GOES", instrument_name="goes xrsb")
-            log.info("GOES data imported successfully")
+            if len(tsa_last) > 0:
+                util.record_timeseries(tsa_last, ts_name="GOES", instrument_name="goes xrsa")
+                log.info(f"GOES xrsa data import from {tsa_last.time[0]} to {tsa_last.time[-1]}, {len(tsa_last)} entries")
+                util.record_timeseries(tsb_last, ts_name="GOES", instrument_name="goes xrsb")
+                log.info(f"GOES xrsb data import from {tsb_last.time[0]} to {tsb_last.time[-1]}, {len(tsb_last)} entries")
+            else:
+                log.info("No GOES data!")
         except Exception as e:
             log.error("Error importing GOES data to Timestream", exc_info=True)
             raise
