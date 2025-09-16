@@ -120,8 +120,8 @@ class Executor:
         log.info("Importing SO/STIX data to Timestream")
         from stixdcpy.quicklook import LightCurves
 
-        dt = TimeDelta(20 * u.min)
-        delay = TimeDelta(12 * u.hr)
+        dt = TimeDelta(12 * u.hr)
+        delay = TimeDelta(8 * u.hr)
         now = Time.now()
         tr = [now - delay - dt, now - delay]
         lc = LightCurves.from_sdc(start_utc=tr[0].isot, end_utc=tr[1].isot, ltc=True)
