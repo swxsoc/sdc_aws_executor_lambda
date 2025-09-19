@@ -148,25 +148,32 @@ class Executor:
         obtime += end_time.strftime('%Y-%m-%dT%H:%M:%S') + '.000Z'
         sensor = 'REACH-171'
 
-        url = f'{baseurl}?obTime={obtime}&idSensor={sensor}&source=Aerospace&dataMode=REAL&descriptor=QUICKLOOK&sort=obTime'
+        url = f'{baseurl}?obTime={obtime}&source=Aerospace&dataMode=REAL&descriptor=QUICKLOOK&sort=obTime'
         log.info(f"Requesting REACH data from UDL at {url}")
         response = requests.get(url, headers={'Authorization':basicAuth}, verify=False)
         if response:
             json_data = response.json()
-            log.info(f"Received {len(json_data)} entries.")
-            available_obs = set([t['seoList'][0]['obDescription'] for t in json_data])
-            for this_ob in available_obs:
-                times = [Time(t['obTime']) for t in json_data if t['seoList'][0]['obDescription'] == this_ob]
-                ts = TimeSeries(time = times)
-                ts.meta['obDescription'] = this_ob
-                ob_value = [t['seoList'][0]['obValue'] for t in json_data if t['seoList'][0]['obDescription'] == this_ob]
-                ts['value'] = ob_value
-                key_list = ['lat', 'lon', 'alt', 'observatoryName', 'idSensor']
-                for this_key in key_list:
-                    ts[this_key] = [t[this_key] for t in json_data if t['seoList'][0]['obDescription'] == this_ob]
+            reachids = set([t['idSensor'] for t in json_data])
+            log.info(f"Received {len(json_data)} entries with {len(reachids)} different reach ids")
+            for this_reachid in reachids:
+                these_reach_data = [this_json for this_json in json_data if this_json['idSensor'] == this_reachid]
+                available_obs = set([t['seoList'][0]['obDescription'] for t in these_reach_data])
+                print(f"{this_reachid} {available_obs}")
+                for i, this_ob in enumerate(available_obs):
+                    times = [Time(t['obTime']) for t in these_reach_data if t['seoList'][0]['obDescription'] == this_ob]
+                    if i == 0:
+                        ts = TimeSeries(time = times)
+                        key_list = ['lat', 'lon', 'alt']
+                        for this_key in key_list:
+                            ts[this_key] = [t[this_key] for t in these_reach_data if t['seoList'][0]['obDescription'] == this_ob]
+                    ob_value = [t['seoList'][0]['obValue'] for t in these_reach_data if t['seoList'][0]['obDescription'] == this_ob]
+                    # change name from DOSE2 (Flavor W) in rad/second to DOSE2-W
+                    col_name = f"{this_ob[0:5]}-{this_ob[14]}"
+                    ts[col_name] = ob_value  # this assumes that there are the same number of measurements for each flavor
+                ts.meta = {'reachID': this_reachid}
+                ts.meta.update({'observatoryName': these_reach_data[0]['observatoryName']})
                 if len(ts) > 0:
-                    instr_name = str(this_ob).split(')')[0] + ')'
-                    util.record_timeseries(ts, ts_name="REACH", instrument_name=instr_name)
+                    util.record_timeseries(ts, ts_name="REACH", instrument_name=this_reachid)
         else:
             log.info(f"No response received from {url}")
 
