@@ -10,6 +10,8 @@ import csv
 import shutil
 import subprocess
 import tempfile
+import time
+from turtle import st
 import requests
 import logging
 import traceback
@@ -88,6 +90,7 @@ class Executor:
             "create_GOES_data_annotations": self.create_GOES_data_annotations,
             "generate_cloc_report_and_upload": self.generate_cloc_report_and_upload,
             "import_UDL_REACH_to_timestream": self.import_UDL_REACH_to_timestream,
+            "get_padre_orbit_data": self.get_padre_orbit_data,
         }
         try:
             # Initialize Grafana API Key
@@ -112,6 +115,30 @@ class Executor:
             raise ValueError(f"Function '{self.function_name}' is not recognized.")
         log.info(f"Executing function: {self.function_name}")
         self.function_mapping[self.function_name]()
+
+
+    @staticmethod
+    def get_padre_orbit_data() -> None:
+        from padre_craft.orbit import PadreOrbit
+        from padre_craft.io.aws_db import record_orbit
+
+        # get 3 days of data to ensure coverage
+        # run it every day so get 2 changes to fix any dropouts
+        dt = TimeDelta(3 * u.day)
+        delay = TimeDelta(0 * u.day)  # TLEs should always be current so no delay
+        now = Time.now()
+        tr = [now - delay - dt, now - delay]
+        padre_orbit = PadreOrbit()  # gets the latest tle from celetrak
+        time_resolution = 10 * u.s
+        log.info(f"Calculating Padre orbit from {tr[0].iso} to {tr[1].iso} every {time_resolution.to(u.s)}")
+        padre_orbit.calculate(tstart=tr[0], tend=tr[1], dt=time_resolution)
+        if padre_orbit.timeseries is not None:
+            if len(padre_orbit.timeseries) > 0:
+                record_orbit(padre_orbit.timeseries)
+                log.info(f"Recorded padre orbit from {tr[0].iso} to {tr[1].iso} every {time_resolution.to(u.s)}")
+        else:
+            log.warning("No Padre orbit data to record")
+
 
     @staticmethod
     def import_UDL_REACH_to_timestream() -> None:
