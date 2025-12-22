@@ -51,6 +51,10 @@ Manages solar flare annotations:
 Likely a temporary addition. Gets REACH data from the UDL. Grabs data from 2 hours ago to 1 hour ago.
 
 
+### import_stix_to_timestream
+Gets solar orbiter stix quicklook lightcurve data.
+
+
 ## Error Handling
 - HTTP 200: Successful execution
 - HTTP 500: Execution failure with error details
