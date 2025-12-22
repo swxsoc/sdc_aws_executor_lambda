@@ -133,6 +133,7 @@ class Executor:
 
     @staticmethod
     def get_padre_orbit_data() -> None:
+        os.environ["SWXSOC_MISSION"] = "padre"
         from padre_craft.orbit import PadreOrbit
         from padre_craft.io.aws_db import record_orbit
 
