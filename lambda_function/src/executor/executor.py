@@ -10,11 +10,7 @@ import csv
 import shutil
 import subprocess
 import tempfile
-import time
-from turtle import st
 import requests
-import logging
-import traceback
 from typing import Any, Dict
 
 from astropy import units as u
@@ -25,8 +21,6 @@ import pandas as pd
 import boto3
 from swxsoc import log
 from swxsoc.util import util
-
-
 
 
 def handle_event(event: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
