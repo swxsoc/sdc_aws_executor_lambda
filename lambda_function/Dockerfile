@@ -27,6 +27,8 @@ RUN apt-get update -y && apt-get install -y curl && curl -Lo /usr/local/bin/aws-
     https://github.com/aws/aws-lambda-runtime-interface-emulator/releases/latest/download/aws-lambda-rie && \
     chmod +x /usr/local/bin/aws-lambda-rie
 
+ADD https://ssd.jpl.nasa.gov/ftp/eph/planets/bsp/de421.bsp /tmp/de421.bsp
+
 # Copy files from the source folder
 COPY src/. ${FUNCTION_DIR}
 
