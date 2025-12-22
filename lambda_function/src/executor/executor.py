@@ -106,7 +106,7 @@ class Executor:
                 log.info(f"{value} API Key loaded")
         except Exception as e:
             log.error("Error reading secrets", exc_info=True)
-            
+    
 
     def execute(self) -> None:
         """
@@ -116,6 +116,7 @@ class Executor:
             raise ValueError(f"Function '{self.function_name}' is not recognized.")
         log.info(f"Executing function: {self.function_name}")
         self.function_mapping[self.function_name]()
+
 
     @staticmethod
     def import_stix_to_timestream() -> None:
