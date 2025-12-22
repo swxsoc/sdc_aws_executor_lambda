@@ -1,3 +1,4 @@
 swxsoc @ git+https://github.com/swxsoc/swxsoc.git
-pandas==2.2.3
+pandas
 stixdcpy
+padre_craft @ git+https://github.com/padreSat/padre_craft.git
