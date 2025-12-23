@@ -136,6 +136,16 @@ class Executor:
         os.environ["SWXSOC_MISSION"] = "padre"
         from padre_craft.orbit import PadreOrbit
         from padre_craft.io.aws_db import record_orbit
+        from padre_craft import NORAD_ID
+        import urllib.request
+        from pathlib import Path
+
+        download_path = "/tmp/padre_tle.csv"
+        url = f"https://celestrak.org/NORAD/elements/gp.php?CATNR={NORAD_ID}&FORMAT=CSV"
+        urllib.request.urlretrieve(url, download_path)
+        log.info(f"Downloading latest TLE from {url} to {download_path}")
+        log.info(f"File exists: {Path(download_path).exists()}")
+        log.info(f"Found ephemeris file: {Path('tmp/de421.bsp').exists()}")
 
         # get 3 days of data to ensure coverage
         # run it every day so get 2 changes to fix any dropouts
@@ -143,7 +153,7 @@ class Executor:
         delay = TimeDelta(0 * u.day)  # TLEs should always be current so no delay
         now = Time.now()
         tr = [now - delay - dt, now - delay]
-        padre_orbit = PadreOrbit()  # gets the latest tle from celetrak
+        padre_orbit = PadreOrbit(download_path)  # gets the latest tle from celetrak
         time_resolution = 10 * u.s
         log.info(f"Calculating Padre orbit from {tr[0].iso} to {tr[1].iso} every {time_resolution.to(u.s)}")
         padre_orbit.calculate(tstart=tr[0], tend=tr[1], dt=time_resolution)
