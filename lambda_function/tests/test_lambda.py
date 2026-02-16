@@ -5,14 +5,15 @@ This module tests the Lambda handler function.
 from unittest.mock import patch
 import importlib.util
 import sys
+import os
 
 # Import the lambda module using importlib since 'lambda' is reserved keyword
+# Construct path relative to this test file
+test_dir = os.path.dirname(os.path.abspath(__file__))
+lambda_path = os.path.join(test_dir, "..", "src", "lambda.py")
+
 spec = importlib.util.spec_from_file_location(
-    "lambda_module",
-    (
-        "/home/runner/work/sdc_aws_executor_lambda/sdc_aws_executor_lambda/"
-        "lambda_function/src/lambda.py"
-    ),
+    "lambda_module", os.path.abspath(lambda_path)
 )
 lambda_module = importlib.util.module_from_spec(spec)
 sys.modules["lambda_module"] = lambda_module

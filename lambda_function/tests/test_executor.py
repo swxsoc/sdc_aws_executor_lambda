@@ -9,7 +9,6 @@ from unittest.mock import Mock, patch
 import pytest
 from executor.executor import handle_event, Executor
 
-
 # ========================================
 # Tests for High-Level Functions
 # ========================================
@@ -39,9 +38,7 @@ class TestHandleEvent:
         # Assert
         assert response["statusCode"] == 200
         assert "Execution completed successfully" in response["body"]
-        mock_executor_class.assert_called_once_with(
-            "import_GOES_data_to_timestream"
-        )
+        mock_executor_class.assert_called_once_with("import_GOES_data_to_timestream")
         mock_executor.execute.assert_called_once()
 
     def test_handle_event_missing_resources(self):
@@ -72,9 +69,7 @@ class TestHandleEvent:
         mock_executor_class.return_value = mock_executor
 
         event = {
-            "resources": [
-                "arn:aws:events:us-east-1:123456789012:rule/test_function"
-            ]
+            "resources": ["arn:aws:events:us-east-1:123456789012:rule/test_function"]
         }
         context = {}
 
@@ -137,9 +132,7 @@ class TestExecutorInit:
     def test_executor_init_secret_error(self, mock_session):
         """Test Executor initialization handles secret errors gracefully."""
         mock_client = Mock()
-        mock_client.get_secret_value.side_effect = Exception(
-            "Secret not found"
-        )
+        mock_client.get_secret_value.side_effect = Exception("Secret not found")
         mock_session_instance = Mock()
         mock_session_instance.client.return_value = mock_client
         mock_session.return_value = mock_session_instance
@@ -228,9 +221,10 @@ class TestExecutorFunctions:
     @patch("executor.executor.pd.read_json")
     def test_import_GOES_data_to_timestream_error(self, mock_read_json):
         """Test GOES data import error handling."""
-        mock_read_json.side_effect = Exception("Connection error")
+        # pd.read_json raises FileNotFoundError when URL is unreachable
+        mock_read_json.side_effect = FileNotFoundError("Connection error")
 
-        with pytest.raises(Exception):
+        with pytest.raises((FileNotFoundError, Exception)):
             Executor.import_GOES_data_to_timestream()
 
     @patch.object(Executor, "create_GOES_data_annotations")
@@ -297,10 +291,8 @@ class TestExecutorFunctions:
         mock_lightcurves.return_value = mock_lc
 
         # Use real Time class for the constructor call, but mock now()
-        mock_time_class.side_effect = (
-            lambda *args, **kwargs: Time(*args, **kwargs)
-            if args
-            else Mock()
+        mock_time_class.side_effect = lambda *args, **kwargs: (
+            Time(*args, **kwargs) if args else Mock()
         )
         mock_time_class.now = Mock(return_value=Time("2024-01-01T12:00:00"))
 
@@ -341,9 +333,7 @@ class TestExecutorFunctions:
         with patch("pathlib.Path.exists", return_value=True):
             with patch("urllib.request.urlretrieve"):
                 mock_padre_orbit = Mock()
-                mock_padre_orbit.timeseries = [
-                    {"time": "2024-01-01", "lat": 0.0}
-                ]
+                mock_padre_orbit.timeseries = [{"time": "2024-01-01", "lat": 0.0}]
                 mock_padre_orbit_class.return_value = mock_padre_orbit
 
                 # Execute
