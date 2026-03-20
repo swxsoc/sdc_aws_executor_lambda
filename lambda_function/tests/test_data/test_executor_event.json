@@ -1,0 +1,7 @@
+{
+  "resources": [
+    "arn:aws:events:us-east-2:123456789012:rule/download_UDL_REACH_to_file"
+  ],
+  "detail-type": "Scheduled Event",
+  "source": "aws.events"
+}

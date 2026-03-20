@@ -3,29 +3,32 @@ This Module contains the Exector class that determines
 which function to execute based on the event rule.
 """
 
-import os
-import json
-import re
 import csv
+import json
+import os
+import re
 import shutil
 import subprocess
 import tempfile
-import requests
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict
 
+import boto3
+import pandas as pd
+import requests
 from astropy import units as u
-from astropy.table import Table
 from astropy.time import Time, TimeDelta
 from astropy.timeseries import TimeSeries
-import pandas as pd
-import boto3
+
+from sdc_aws_utils.aws import push_science_file
+from sdc_aws_utils.config import parser as science_filename_parser
 from swxsoc import log
 from swxsoc.util import util
 
 
 def handle_event(event: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Handles the event passed to the Lambda function to initialize the FileProcessor.
+    Handles the event passed to the Lambda function to initialize the Executor.
 
     :param event: Event data passed from the Lambda trigger
     :type event: dict
@@ -38,15 +41,15 @@ def handle_event(event: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, An
 
     try:
         # Validate event structure
-        if not event.get('resources'):
+        if not event.get("resources"):
             raise ValueError("Event is missing 'resources' key.")
 
         # Extract the rule ARN
-        rule_arn = event['resources'][0]
+        rule_arn = event["resources"][0]
         log.debug("Extracted rule ARN", extra={"rule_arn": rule_arn})
 
         # Use regex to extract the rule name
-        rule_name_match = re.search(r'rule/(.+)', rule_arn)
+        rule_name_match = re.search(r"rule/(.+)", rule_arn)
         if not rule_name_match:
             raise ValueError("Invalid rule ARN format. Could not extract rule name.")
         function_name = rule_name_match.group(1)
@@ -84,13 +87,17 @@ class Executor:
             "create_GOES_data_annotations": self.create_GOES_data_annotations,
             "generate_cloc_report_and_upload": self.generate_cloc_report_and_upload,
             "import_UDL_REACH_to_timestream": self.import_UDL_REACH_to_timestream,
+            "download_UDL_REACH_to_file": self.download_UDL_REACH_to_file,
             "import_stix_to_timestream": self.import_stix_to_timestream,
             "get_padre_orbit_data": self.get_padre_orbit_data,
         }
         try:
             # Initialize Grafana API Key
             session = boto3.session.Session()
-            env_to_ids = {"SECRET_ARN_GRAFANA": "grafana_api_key", "SECRET_ARN_UDL": "basicauth"}
+            env_to_ids = {
+                "SECRET_ARN_GRAFANA": "grafana_api_key",
+                "SECRET_ARN_UDL": "basicauth",
+            }
             for key, value in env_to_ids.items():
                 secret_arn = os.getenv(key, None)
                 client = session.client(service_name="secretsmanager")
@@ -98,9 +105,8 @@ class Executor:
                 secret = json.loads(response["SecretString"])
                 os.environ[value.upper()] = secret[value]
                 log.info(f"{value} API Key loaded")
-        except Exception as e:
+        except Exception:
             log.error("Error reading secrets", exc_info=True)
-    
 
     def execute(self) -> None:
         """
@@ -110,7 +116,6 @@ class Executor:
             raise ValueError(f"Function '{self.function_name}' is not recognized.")
         log.info(f"Executing function: {self.function_name}")
         self.function_mapping[self.function_name]()
-
 
     @staticmethod
     def import_stix_to_timestream() -> None:
@@ -124,12 +129,16 @@ class Executor:
         tr = [now - delay - dt, now - delay]
         lc = LightCurves.from_sdc(start_utc=tr[0].isot, end_utc=tr[1].isot, ltc=True)
         if lc.data:
-            stix_ts = TimeSeries(time = lc.time, data={f'qlc{i}': this_data for i, this_data in enumerate(lc.counts)})
-            log.info(f"Received stix data from {stix_ts.time[0]} to {stix_ts.time[-1]}, {len(stix_ts)} entries")
+            stix_ts = TimeSeries(
+                time=lc.time,
+                data={f"qlc{i}": this_data for i, this_data in enumerate(lc.counts)},
+            )
+            log.info(
+                f"Received stix data from {stix_ts.time[0]} to {stix_ts.time[-1]}, {len(stix_ts)} entries"
+            )
             util.record_timeseries(stix_ts, ts_name="solo", instrument_name="stix")
         else:
             log.info("No stix data received.")
-
 
     @staticmethod
     def get_padre_orbit_data() -> None:
@@ -148,7 +157,7 @@ class Executor:
 
         ephem_path = "/tmp/de421.bsp"
         if not Path(ephem_path).exists():
-            url = f"https://ssd.jpl.nasa.gov/ftp/eph/planets/bsp/de421.bsp"
+            url = "https://ssd.jpl.nasa.gov/ftp/eph/planets/bsp/de421.bsp"
             log.info(f"Downloading ephemeris from {url} to {ephem_path}")
             urllib.request.urlretrieve(url, ephem_path)
         log.info(f"Found ephemeris file: {Path(ephem_path).exists()}")
@@ -161,60 +170,305 @@ class Executor:
         tr = [now - delay - dt, now - delay]
         padre_orbit = PadreOrbit(tle_path)  # gets the latest tle from celetrak
         time_resolution = 10 * u.s
-        log.info(f"Calculating Padre orbit from {tr[0].iso} to {tr[1].iso} every {time_resolution.to(u.s)}")
+        log.info(
+            f"Calculating Padre orbit from {tr[0].iso} to {tr[1].iso} every {time_resolution.to(u.s)}"
+        )
         padre_orbit.calculate(tstart=tr[0], tend=tr[1], dt=time_resolution)
         if padre_orbit.timeseries is not None:
             if len(padre_orbit.timeseries) > 0:
                 record_orbit(padre_orbit.timeseries)
-                log.info(f"Recorded padre orbit from {tr[0].iso} to {tr[1].iso} every {time_resolution.to(u.s)}")
+                log.info(
+                    f"Recorded padre orbit from {tr[0].iso} to {tr[1].iso} every {time_resolution.to(u.s)}"
+                )
         else:
             log.warning("No Padre orbit data to record")
-
 
     @staticmethod
     def import_UDL_REACH_to_timestream() -> None:
         """
         Imports data from UDL, grabs some REACH data and imports to Timestream
         """
-        basicAuth = os.environ['basicauth'.upper()]
-        baseurl = 'https://unifieddatalibrary.com/udl/spaceenvobservation'
+        basicAuth = os.environ["basicauth".upper()]
+        baseurl = "https://unifieddatalibrary.com/udl/spaceenvobservation"
 
         tdelay = TimeDelta(2 * u.hour)
         dt = TimeDelta(10 * u.minute)
-        start_time = (Time.now() - tdelay)
+        start_time = Time.now() - tdelay
         end_time = start_time + dt
-        obtime = start_time.strftime('%Y-%m-%dT%H:%M:%S') + '.000Z..'
-        obtime += end_time.strftime('%Y-%m-%dT%H:%M:%S') + '.000Z'
-        sensor = 'REACH-171'
+        obtime = start_time.strftime("%Y-%m-%dT%H:%M:%S") + ".000Z.."
+        obtime += end_time.strftime("%Y-%m-%dT%H:%M:%S") + ".000Z"
+        sensor = "REACH-171"
 
-        url = f'{baseurl}?obTime={obtime}&source=Aerospace&dataMode=REAL&descriptor=QUICKLOOK&sort=obTime'
+        url = f"{baseurl}?obTime={obtime}&source=Aerospace&dataMode=REAL&descriptor=QUICKLOOK&sort=obTime"
         log.info(f"Requesting REACH data from UDL at {url}")
-        response = requests.get(url, headers={'Authorization':basicAuth}, verify=False)
+        response = requests.get(url, headers={"Authorization": basicAuth}, verify=False)
         if response:
             json_data = response.json()
-            reachids = set([t['idSensor'] for t in json_data])
-            log.info(f"Received {len(json_data)} entries with {len(reachids)} different reach ids")
+            reachids = set([t["idSensor"] for t in json_data])
+            log.info(
+                f"Received {len(json_data)} entries with {len(reachids)} different reach ids"
+            )
             for this_reachid in reachids:
-                these_reach_data = [this_json for this_json in json_data if this_json['idSensor'] == this_reachid]
-                available_obs = set([t['seoList'][0]['obDescription'] for t in these_reach_data])
+                these_reach_data = [
+                    this_json
+                    for this_json in json_data
+                    if this_json["idSensor"] == this_reachid
+                ]
+                available_obs = set(
+                    [t["seoList"][0]["obDescription"] for t in these_reach_data]
+                )
                 print(f"{this_reachid} {available_obs}")
                 for i, this_ob in enumerate(available_obs):
-                    times = [Time(t['obTime']) for t in these_reach_data if t['seoList'][0]['obDescription'] == this_ob]
+                    times = [
+                        Time(t["obTime"])
+                        for t in these_reach_data
+                        if t["seoList"][0]["obDescription"] == this_ob
+                    ]
                     if i == 0:
-                        ts = TimeSeries(time = times)
-                        key_list = ['lat', 'lon', 'alt']
+                        ts = TimeSeries(time=times)
+                        key_list = ["lat", "lon", "alt"]
                         for this_key in key_list:
-                            ts[this_key] = [t[this_key] for t in these_reach_data if t['seoList'][0]['obDescription'] == this_ob]
-                    ob_value = [t['seoList'][0]['obValue'] for t in these_reach_data if t['seoList'][0]['obDescription'] == this_ob]
+                            ts[this_key] = [
+                                t[this_key]
+                                for t in these_reach_data
+                                if t["seoList"][0]["obDescription"] == this_ob
+                            ]
+                    ob_value = [
+                        t["seoList"][0]["obValue"]
+                        for t in these_reach_data
+                        if t["seoList"][0]["obDescription"] == this_ob
+                    ]
                     # change name from DOSE2 (Flavor W) in rad/second to DOSE2-W
                     col_name = f"{this_ob[0:5]}-{this_ob[14]}"
-                    ts[col_name] = ob_value  # this assumes that there are the same number of measurements for each flavor
-                ts.meta = {'reachID': this_reachid}
-                ts.meta.update({'observatoryName': these_reach_data[0]['observatoryName']})
+                    ts[col_name] = (
+                        ob_value  # this assumes that there are the same number of measurements for each flavor
+                    )
+                ts.meta = {"reachID": this_reachid}
+                ts.meta.update(
+                    {"observatoryName": these_reach_data[0]["observatoryName"]}
+                )
                 if len(ts) > 0:
-                    util.record_timeseries(ts, ts_name="REACH", instrument_name=this_reachid)
+                    util.record_timeseries(
+                        ts, ts_name="REACH", instrument_name=this_reachid
+                    )
         else:
             log.info(f"No response received from {url}")
+
+    @staticmethod
+    def _get_reach_datetimelist(
+        start_time: str, end_time: str, sensor_id: str
+    ) -> list[str]:
+        """Split a query range into UDL-safe chunks for REACH requests."""
+        timechunk = 21600 if sensor_id.startswith("REACH-") else 600
+        dtlist = []
+
+        start_dt = datetime.strptime(start_time, "%Y-%m-%dT%H:%M:%S")
+        end_dt = datetime.strptime(end_time, "%Y-%m-%dT%H:%M:%S")
+        current_dt = start_dt
+
+        while current_dt < end_dt:
+            if current_dt == start_dt:
+                t1 = start_dt.strftime("%Y-%m-%dT%H:%M:%S")
+            else:
+                t1 = (current_dt + timedelta(seconds=1)).strftime("%Y-%m-%dT%H:%M:%S")
+
+            if current_dt + timedelta(seconds=timechunk) < end_dt:
+                t2 = (current_dt + timedelta(seconds=timechunk)).strftime(
+                    "%Y-%m-%dT%H:%M:%S"
+                )
+            else:
+                t2 = end_dt.strftime("%Y-%m-%dT%H:%M:%S")
+
+            current_dt += timedelta(seconds=timechunk)
+            dtlist.append(f"{t1}.000Z..{t2}.000Z")
+
+        return dtlist
+
+    @staticmethod
+    def _get_reach_urllist(
+        dtlist: list[str], sensor_id: str, descriptor: str
+    ) -> Dict[str, str]:
+        """Build UDL URLs for each REACH time chunk."""
+        baseurl = "https://unifieddatalibrary.com/udl/spaceenvobservation"
+        urls = {}
+
+        for obtime in dtlist:
+            if sensor_id.upper() == "ALL":
+                url = (
+                    f"{baseurl}?obTime={obtime}&source=Aerospace&dataMode=REAL"
+                    f"&descriptor={descriptor}&sort=obTime"
+                )
+            else:
+                url = (
+                    f"{baseurl}?obTime={obtime}&idSensor={sensor_id}&source=Aerospace"
+                    f"&dataMode=REAL&descriptor={descriptor}&sort=obTime"
+                )
+            urls[obtime] = url
+
+        return urls
+
+    @staticmethod
+    def _build_reach_output_filename(
+        sensor_id: str,
+        start_dt: datetime,
+        end_dt: datetime,
+        output_format: str,
+    ) -> str:
+        """Build deterministic filename for one combined REACH output artifact."""
+        sensor_prefix = "REACH-ALL" if sensor_id.upper() == "ALL" else sensor_id
+        time_range = (
+            f"{start_dt.strftime('%Y%m%dT%H%M%S')}_{end_dt.strftime('%Y%m%dT%H%M%S')}"
+        )
+        return f"{sensor_prefix}_{time_range}.{output_format}"
+
+    @staticmethod
+    def _write_reach_output(
+        filepath: str, obs: list[Dict[str, Any]], output_format: str
+    ) -> None:
+        """Write REACH payload to JSON or CSV file."""
+        if output_format == "json":
+            with open(filepath, "w", encoding="utf-8") as json_file:
+                json.dump(obs, json_file, indent=4)
+            return
+
+        if not obs:
+            with open(filepath, "w", newline="", encoding="utf-8") as csv_file:
+                csv_file.write("")
+            return
+
+        fieldnames = obs[0].keys()
+        with open(filepath, "w", newline="", encoding="utf-8") as csv_file:
+            writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(obs)
+
+    @staticmethod
+    def _upload_reach_file_to_s3_stub(filepath: str) -> None:
+        """
+        Stub hook for future S3 upload integration via sdc_aws_utils.
+        """
+        os.environ["SWXSOC_MISSION"] = "swxsoc_pipeline"
+        import swxsoc
+        swxsoc._reconfigure()  # Updates Mission Config to use swxsoc_pipeline settings
+
+        destination_bucket = os.environ.get(
+            "REACH_DESTINATION_BUCKET", "dev-swxsoc-pipeline-incoming"
+        )
+        calibrated_filename = os.path.basename(filepath)
+
+        # Push the file to S3 using sdc_aws_utils helper
+        new_file_key = push_science_file(
+            science_filename_parser=science_filename_parser,
+            destination_bucket=destination_bucket,
+            calibrated_filename=calibrated_filename,
+        )
+
+        log.info(
+            "Uploaded REACH file to S3",
+            extra={
+                "filepath": filepath,
+                "destination_bucket": destination_bucket,
+                "new_file_key": new_file_key,
+            },
+        )
+
+    @staticmethod
+    def download_UDL_REACH_to_file() -> None:
+        """
+        Downloads REACH data from UDL into /tmp files for later S3 upload.
+        """
+        basic_auth = os.environ["basicauth".upper()]
+        sensor_id = os.environ.get("REACH_SENSOR_ID", "ALL")
+        descriptor = os.environ.get("REACH_DESCRIPTOR", "QUICKLOOK")
+        output_format = os.environ.get("REACH_FILE_FORMAT", "csv").lower()
+        delay_seconds = int(os.environ.get("REACH_DELAY_SECONDS", "7200"))
+        window_seconds = int(os.environ.get("REACH_WINDOW_SECONDS", "600"))
+        output_dir = os.environ.get("REACH_OUTPUT_DIR", "/tmp")
+
+        if output_format not in {"json", "csv"}:
+            raise ValueError("REACH_FILE_FORMAT must be either 'json' or 'csv'.")
+
+        # Set Start and End times for REACH data query
+        end_dt = datetime.now(timezone.utc) - timedelta(seconds=delay_seconds)
+        start_dt = end_dt - timedelta(seconds=window_seconds)
+        start_time = start_dt.strftime("%Y-%m-%dT%H:%M:%S")
+        end_time = end_dt.strftime("%Y-%m-%dT%H:%M:%S")
+        log.info(
+            "Starting REACH download-to-file run",
+            extra={
+                "sensor_id": sensor_id,
+                "descriptor": descriptor,
+                "output_format": output_format,
+                "start_time": start_time,
+                "end_time": end_time,
+            },
+        )
+
+        # Build chunked query windows and aggregate all records into one output artifact.
+        dtlist = Executor._get_reach_datetimelist(start_time, end_time, sensor_id)
+        urls = Executor._get_reach_urllist(dtlist, sensor_id, descriptor)
+
+        combined_obs: list[Dict[str, Any]] = []
+        chunk_count = 0
+        for dt, url in urls.items():
+            log.info(f"Requesting REACH file chunk from UDL at {url}")
+
+            # Curl the UDL endpoint for this chunk
+            response = requests.get(
+                url,
+                headers={"Authorization": basic_auth},
+                timeout=60,
+            )
+            response.raise_for_status()
+
+            # Add chunk data to combined list
+            obs_chunk = response.json()
+            if isinstance(obs_chunk, list):
+                combined_obs.extend(obs_chunk)
+            elif obs_chunk:
+                combined_obs.append(obs_chunk)
+            chunk_count += 1
+            log.info(
+                "Received REACH chunk",
+                extra={
+                    "chunk_window": dt,
+                    "chunk_record_count": len(obs_chunk)
+                    if isinstance(obs_chunk, list)
+                    else 1,
+                },
+            )
+
+        filename = Executor._build_reach_output_filename(
+            sensor_id=sensor_id,
+            start_dt=start_dt,
+            end_dt=end_dt,
+            output_format=output_format,
+        )
+        filepath = os.path.join(output_dir, filename)
+        Executor._write_reach_output(filepath, combined_obs, output_format)
+        log.info(
+            "REACH combined file written",
+            extra={
+                "filepath": filepath,
+                "output_format": output_format,
+                "total_record_count": len(combined_obs),
+            },
+        )
+
+        # TODO: Replace with sdc_aws_utils S3 upload helper once bucket/key conventions are finalized.
+        Executor._upload_reach_file_to_s3_stub(filepath)
+
+        log.info(
+            "Completed REACH combined download-to-file run",
+            extra={
+                "sensor_id": sensor_id,
+                "descriptor": descriptor,
+                "output_format": output_format,
+                "chunk_count": chunk_count,
+                "combined_record_count": len(combined_obs),
+                "saved_file": filepath,
+            },
+        )
 
     @staticmethod
     def import_GOES_data_to_timestream():
@@ -224,27 +478,43 @@ class Executor:
 
         log.info("Importing GOES data to Timestream")
         try:
-            goes_json_data = pd.read_json("https://services.swpc.noaa.gov/json/goes/primary/xrays-6-hour.json")
+            goes_json_data = pd.read_json(
+                "https://services.swpc.noaa.gov/json/goes/primary/xrays-6-hour.json"
+            )
             last_hour = Time.now() - TimeDelta(1 * u.hour)
 
             goes_short = goes_json_data[goes_json_data["energy"] == "0.05-0.4nm"]
             goes_long = goes_json_data[goes_json_data["energy"] == "0.1-0.8nm"]
-            time_tags = Time([str(t)[:-1] for t in goes_short["time_tag"].values], format="isot")
+            time_tags = Time(
+                [str(t)[:-1] for t in goes_short["time_tag"].values], format="isot"
+            )
 
-            tsa = TimeSeries(time=time_tags, data={"xrsa": goes_short["flux"].values * u.W / u.m**2})
-            tsb = TimeSeries(time=time_tags, data={"xrsb": goes_long["flux"].values * u.W / u.m**2})
+            tsa = TimeSeries(
+                time=time_tags, data={"xrsa": goes_short["flux"].values * u.W / u.m**2}
+            )
+            tsb = TimeSeries(
+                time=time_tags, data={"xrsb": goes_long["flux"].values * u.W / u.m**2}
+            )
 
-            tsa_last = tsa.loc[last_hour:Time.now()]
-            tsb_last = tsb.loc[last_hour:Time.now()]
+            tsa_last = tsa.loc[last_hour : Time.now()]
+            tsb_last = tsb.loc[last_hour : Time.now()]
 
             if len(tsa_last) > 0:
-                util.record_timeseries(tsa_last, ts_name="GOES", instrument_name="goes xrsa")
-                log.info(f"GOES xrsa data import from {tsa_last.time[0]} to {tsa_last.time[-1]}, {len(tsa_last)} entries")
-                util.record_timeseries(tsb_last, ts_name="GOES", instrument_name="goes xrsb")
-                log.info(f"GOES xrsb data import from {tsb_last.time[0]} to {tsb_last.time[-1]}, {len(tsb_last)} entries")
+                util.record_timeseries(
+                    tsa_last, ts_name="GOES", instrument_name="goes xrsa"
+                )
+                log.info(
+                    f"GOES xrsa data import from {tsa_last.time[0]} to {tsa_last.time[-1]}, {len(tsa_last)} entries"
+                )
+                util.record_timeseries(
+                    tsb_last, ts_name="GOES", instrument_name="goes xrsb"
+                )
+                log.info(
+                    f"GOES xrsb data import from {tsb_last.time[0]} to {tsb_last.time[-1]}, {len(tsb_last)} entries"
+                )
             else:
                 log.info("No GOES data!")
-        except Exception as e:
+        except Exception:
             log.error("Error importing GOES data to Timestream", exc_info=True)
             raise
 
@@ -255,7 +525,9 @@ class Executor:
         """
         log.info("Creating GOES data annotations")
         try:
-            flare_events = pd.read_json("https://services.swpc.noaa.gov/json/goes/primary/xray-flares-7-day.json")
+            flare_events = pd.read_json(
+                "https://services.swpc.noaa.gov/json/goes/primary/xray-flares-7-day.json"
+            )
             goes_class = flare_events["max_class"].astype(str).tolist()
             start_time = Time(flare_events["begin_time"].values)
             end_time = Time(flare_events["end_time"].values)
@@ -264,9 +536,15 @@ class Executor:
 
             event_list = TimeSeries(
                 time=start_time,
-                data={"class": goes_class, "peak_time": peak_time, "end_time": end_time},
+                data={
+                    "class": goes_class,
+                    "peak_time": peak_time,
+                    "end_time": end_time,
+                },
             )
-            event_list_lastday = event_list.loc[last_day:last_day + TimeDelta(1 * u.day)]
+            event_list_lastday = event_list.loc[
+                last_day : last_day + TimeDelta(1 * u.day)
+            ]
 
             dashboard_name = "Context Observations"
             panel_name = "GOES XRS"
@@ -297,29 +575,28 @@ class Executor:
                     overwrite=True,
                 )
                 log.info("GOES data annotations created successfully")
-        except Exception as e:
+        except Exception:
             log.error("Error creating GOES data annotations", exc_info=True)
             raise
-    
-    
-    @staticmethod        
+
+    @staticmethod
     def generate_cloc_report_and_upload() -> str:
-        orgs_or_users = os.environ.get('GITHUB_ORGS_USERS', '').split(',')
-        s3_bucket = os.environ.get('S3_BUCKET')
-        s3_key = os.environ.get('S3_KEY', 'combined_cloc_report.csv')
+        orgs_or_users = os.environ.get("GITHUB_ORGS_USERS", "").split(",")
+        s3_bucket = os.environ.get("S3_BUCKET")
+        s3_key = os.environ.get("S3_KEY", "combined_cloc_report.csv")
 
         if not orgs_or_users or not orgs_or_users[0]:
-            raise ValueError('GITHUB_ORGS_USERS environment variable not set')
+            raise ValueError("GITHUB_ORGS_USERS environment variable not set")
         if not s3_bucket:
-            raise ValueError('S3_BUCKET environment variable not set')
+            raise ValueError("S3_BUCKET environment variable not set")
 
-        tmp_dir = tempfile.mkdtemp(dir='/tmp', prefix='repo-loc-')
-        final_csv_path = os.path.join(tmp_dir, 'combined_cloc_report.csv')
+        tmp_dir = tempfile.mkdtemp(dir="/tmp", prefix="repo-loc-")
+        final_csv_path = os.path.join(tmp_dir, "combined_cloc_report.csv")
         headers = {}
-        base_url = 'https://api.github.com'
+        base_url = "https://api.github.com"
 
         try:
-            with open(final_csv_path, 'w', newline='') as csvfile:
+            with open(final_csv_path, "w", newline="") as csvfile:
                 csv_writer = csv.writer(csvfile)
                 header_written = False
 
@@ -328,14 +605,14 @@ class Executor:
                     repos = []
 
                     # Try organization
-                    org_url = f'{base_url}/orgs/{target}/repos?type=sources'
+                    org_url = f"{base_url}/orgs/{target}/repos?type=sources"
                     response = requests.get(org_url, headers=headers)
 
                     if response.status_code == 200:
                         repos = response.json()
                     elif response.status_code == 404:
                         # Try user
-                        user_url = f'{base_url}/users/{target}/repos?type=sources'
+                        user_url = f"{base_url}/users/{target}/repos?type=sources"
                         user_response = requests.get(user_url, headers=headers)
                         if user_response.status_code == 200:
                             repos = user_response.json()
@@ -343,52 +620,79 @@ class Executor:
                             print(f"⚠️ Could not find user/org: {target}")
                             continue
                     else:
-                        print(f"⚠️ Failed to fetch repos for {target}: {response.status_code}")
+                        print(
+                            f"⚠️ Failed to fetch repos for {target}: {response.status_code}"
+                        )
                         continue
 
                     print(f"📦 Found {len(repos)} repos for {target}")
 
                     for repo in repos:
-                        if repo['fork'] or repo['archived']:
+                        if repo["fork"] or repo["archived"]:
                             continue
 
-                        repo_name = repo['name']
+                        repo_name = repo["name"]
                         destination = os.path.join(tmp_dir, repo_name)
                         report_file = os.path.join(tmp_dir, f"{repo_name}.csv")
 
                         try:
                             # Clone repo
-                            clone_url = repo['clone_url']  # Use public HTTPS URL
+                            clone_url = repo["clone_url"]  # Use public HTTPS URL
                             clone_process = subprocess.run(
-                                ['git', 'clone', '--depth', '1', '--quiet', clone_url, destination],
-                                capture_output=True, text=True
+                                [
+                                    "git",
+                                    "clone",
+                                    "--depth",
+                                    "1",
+                                    "--quiet",
+                                    clone_url,
+                                    destination,
+                                ],
+                                capture_output=True,
+                                text=True,
                             )
                             if clone_process.returncode != 0:
-                                print(f"❌ Failed to clone {repo_name}: {clone_process.stderr}")
+                                print(
+                                    f"❌ Failed to clone {repo_name}: {clone_process.stderr}"
+                                )
                                 continue
 
                             # Run cloc
                             cloc_process = subprocess.run(
-                                ['cloc', destination, '--quiet', '--csv', f"--report-file={report_file}"],
-                                capture_output=True, text=True
+                                [
+                                    "cloc",
+                                    destination,
+                                    "--quiet",
+                                    "--csv",
+                                    f"--report-file={report_file}",
+                                ],
+                                capture_output=True,
+                                text=True,
                             )
-                            if os.path.exists(report_file) and cloc_process.returncode == 0:
-                                with open(report_file, 'r') as repo_csv:
+                            if (
+                                os.path.exists(report_file)
+                                and cloc_process.returncode == 0
+                            ):
+                                with open(report_file, "r") as repo_csv:
                                     csv_reader = csv.reader(repo_csv)
                                     for row in csv_reader:
-                                        if row and not row[0].startswith('#'):
+                                        if row and not row[0].startswith("#"):
                                             if not header_written:
-                                                csv_writer.writerow(['org_name', 'repo_name'] + row)
+                                                csv_writer.writerow(
+                                                    ["org_name", "repo_name"] + row
+                                                )
                                                 header_written = True
                                             else:
-                                                csv_writer.writerow([target, repo_name] + row)
+                                                csv_writer.writerow(
+                                                    [target, repo_name] + row
+                                                )
                             else:
                                 print(f"⚠️ cloc failed on {repo_name}")
                         finally:
                             shutil.rmtree(destination, ignore_errors=True)
 
             # Upload to S3
-            s3 = boto3.client('s3')
+            s3 = boto3.client("s3")
             s3.upload_file(final_csv_path, s3_bucket, s3_key)
             print(f"✅ Uploaded CSV to s3://{s3_bucket}/{s3_key}")
             return f"s3://{s3_bucket}/{s3_key}"
