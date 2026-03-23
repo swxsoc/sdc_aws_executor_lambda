@@ -88,7 +88,7 @@ class Executor:
             "create_GOES_data_annotations": self.create_GOES_data_annotations,
             "generate_cloc_report_and_upload": self.generate_cloc_report_and_upload,
             "import_UDL_REACH_to_timestream": self.import_UDL_REACH_to_timestream,
-            "download_UDL_REACH_to_file": self.download_UDL_REACH_to_file,
+            "import_UDL_REACH_to_s3": self.import_UDL_REACH_to_s3,
             "import_stix_to_timestream": self.import_stix_to_timestream,
             "get_padre_orbit_data": self.get_padre_orbit_data,
         }
@@ -288,7 +288,7 @@ class Executor:
         return new_file_key
 
     @staticmethod
-    def download_UDL_REACH_to_file() -> None:
+    def import_UDL_REACH_to_s3() -> None:
         """
         Downloads REACH data from UDL into /tmp files for later S3 upload.
         """
