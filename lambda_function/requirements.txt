@@ -1,4 +1,5 @@
 pandas
 stixdcpy
 padre_craft @ git+https://github.com/padreSat/padre_craft.git
+swxsoc_reach @ git+https://github.com/swxsoc/swxsoc_reach.git
 sdc_aws_utils @ git+https://github.com/swxsoc/sdc_aws_utils.git

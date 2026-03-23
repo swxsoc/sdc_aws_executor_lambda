@@ -22,6 +22,7 @@ from astropy.timeseries import TimeSeries
 
 from sdc_aws_utils.aws import push_science_file
 from sdc_aws_utils.config import parser as science_filename_parser
+from swxsoc_reach import download_UDL_reach_to_file
 from swxsoc import log
 from swxsoc.util import util
 
@@ -254,96 +255,9 @@ class Executor:
         else:
             log.info(f"No response received from {url}")
 
-    @staticmethod
-    def _get_reach_datetimelist(
-        start_time: str, end_time: str, sensor_id: str
-    ) -> list[str]:
-        """Split a query range into UDL-safe chunks for REACH requests."""
-        timechunk = 21600 if sensor_id.startswith("REACH-") else 600
-        dtlist = []
-
-        start_dt = datetime.strptime(start_time, "%Y-%m-%dT%H:%M:%S")
-        end_dt = datetime.strptime(end_time, "%Y-%m-%dT%H:%M:%S")
-        current_dt = start_dt
-
-        while current_dt < end_dt:
-            if current_dt == start_dt:
-                t1 = start_dt.strftime("%Y-%m-%dT%H:%M:%S")
-            else:
-                t1 = (current_dt + timedelta(seconds=1)).strftime("%Y-%m-%dT%H:%M:%S")
-
-            if current_dt + timedelta(seconds=timechunk) < end_dt:
-                t2 = (current_dt + timedelta(seconds=timechunk)).strftime(
-                    "%Y-%m-%dT%H:%M:%S"
-                )
-            else:
-                t2 = end_dt.strftime("%Y-%m-%dT%H:%M:%S")
-
-            current_dt += timedelta(seconds=timechunk)
-            dtlist.append(f"{t1}.000Z..{t2}.000Z")
-
-        return dtlist
 
     @staticmethod
-    def _get_reach_urllist(
-        dtlist: list[str], sensor_id: str, descriptor: str
-    ) -> Dict[str, str]:
-        """Build UDL URLs for each REACH time chunk."""
-        baseurl = "https://unifieddatalibrary.com/udl/spaceenvobservation"
-        urls = {}
-
-        for obtime in dtlist:
-            if sensor_id.upper() == "ALL":
-                url = (
-                    f"{baseurl}?obTime={obtime}&source=Aerospace&dataMode=REAL"
-                    f"&descriptor={descriptor}&sort=obTime"
-                )
-            else:
-                url = (
-                    f"{baseurl}?obTime={obtime}&idSensor={sensor_id}&source=Aerospace"
-                    f"&dataMode=REAL&descriptor={descriptor}&sort=obTime"
-                )
-            urls[obtime] = url
-
-        return urls
-
-    @staticmethod
-    def _build_reach_output_filename(
-        sensor_id: str,
-        start_dt: datetime,
-        end_dt: datetime,
-        output_format: str,
-    ) -> str:
-        """Build deterministic filename for one combined REACH output artifact."""
-        sensor_prefix = "REACH-ALL" if sensor_id.upper() == "ALL" else sensor_id
-        time_range = (
-            f"{start_dt.strftime('%Y%m%dT%H%M%S')}_{end_dt.strftime('%Y%m%dT%H%M%S')}"
-        )
-        return f"{sensor_prefix}_{time_range}.{output_format}"
-
-    @staticmethod
-    def _write_reach_output(
-        filepath: str, obs: list[Dict[str, Any]], output_format: str
-    ) -> None:
-        """Write REACH payload to JSON or CSV file."""
-        if output_format == "json":
-            with open(filepath, "w", encoding="utf-8") as json_file:
-                json.dump(obs, json_file, indent=4)
-            return
-
-        if not obs:
-            with open(filepath, "w", newline="", encoding="utf-8") as csv_file:
-                csv_file.write("")
-            return
-
-        fieldnames = obs[0].keys()
-        with open(filepath, "w", newline="", encoding="utf-8") as csv_file:
-            writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
-            writer.writeheader()
-            writer.writerows(obs)
-
-    @staticmethod
-    def _upload_reach_file_to_s3_stub(filepath: str) -> None:
+    def _upload_reach_file_to_s3(filepath: str) -> str:
         """
         Stub hook for future S3 upload integration via sdc_aws_utils.
         """
@@ -371,6 +285,7 @@ class Executor:
                 "new_file_key": new_file_key,
             },
         )
+        return new_file_key
 
     @staticmethod
     def download_UDL_REACH_to_file() -> None:
@@ -385,88 +300,25 @@ class Executor:
         window_seconds = int(os.environ.get("REACH_WINDOW_SECONDS", "600"))
         output_dir = os.environ.get("REACH_OUTPUT_DIR", "/tmp")
 
-        if output_format not in {"json", "csv"}:
-            raise ValueError("REACH_FILE_FORMAT must be either 'json' or 'csv'.")
-
-        # Set Start and End times for REACH data query
-        end_dt = datetime.now(timezone.utc) - timedelta(seconds=delay_seconds)
-        start_dt = end_dt - timedelta(seconds=window_seconds)
-        start_time = start_dt.strftime("%Y-%m-%dT%H:%M:%S")
-        end_time = end_dt.strftime("%Y-%m-%dT%H:%M:%S")
-        log.info(
-            "Starting REACH download-to-file run",
-            extra={
-                "sensor_id": sensor_id,
-                "descriptor": descriptor,
-                "output_format": output_format,
-                "start_time": start_time,
-                "end_time": end_time,
-            },
-        )
-
-        # Build chunked query windows and aggregate all records into one output artifact.
-        dtlist = Executor._get_reach_datetimelist(start_time, end_time, sensor_id)
-        urls = Executor._get_reach_urllist(dtlist, sensor_id, descriptor)
-
-        combined_obs: list[Dict[str, Any]] = []
-        chunk_count = 0
-        for dt, url in urls.items():
-            log.info(f"Requesting REACH file chunk from UDL at {url}")
-
-            # Curl the UDL endpoint for this chunk
-            response = requests.get(
-                url,
-                headers={"Authorization": basic_auth},
-                timeout=60,
-            )
-            response.raise_for_status()
-
-            # Add chunk data to combined list
-            obs_chunk = response.json()
-            if isinstance(obs_chunk, list):
-                combined_obs.extend(obs_chunk)
-            elif obs_chunk:
-                combined_obs.append(obs_chunk)
-            chunk_count += 1
-            log.info(
-                "Received REACH chunk",
-                extra={
-                    "chunk_window": dt,
-                    "chunk_record_count": len(obs_chunk)
-                    if isinstance(obs_chunk, list)
-                    else 1,
-                },
-            )
-
-        filename = Executor._build_reach_output_filename(
+        # Download REACH Data to the Specific Folder
+        downloaded_path = download_UDL_reach_to_file(
+            auth_token=basic_auth,
             sensor_id=sensor_id,
-            start_dt=start_dt,
-            end_dt=end_dt,
+            descriptor=descriptor,
             output_format=output_format,
-        )
-        filepath = os.path.join(output_dir, filename)
-        Executor._write_reach_output(filepath, combined_obs, output_format)
-        log.info(
-            "REACH combined file written",
-            extra={
-                "filepath": filepath,
-                "output_format": output_format,
-                "total_record_count": len(combined_obs),
-            },
+            delay_seconds=delay_seconds,
+            window_seconds=window_seconds,
+            output_dir=output_dir,
         )
 
-        # TODO: Replace with sdc_aws_utils S3 upload helper once bucket/key conventions are finalized.
-        Executor._upload_reach_file_to_s3_stub(filepath)
-
+        new_file_key = Executor._upload_reach_file_to_s3(downloaded_path)
         log.info(
             "Completed REACH combined download-to-file run",
             extra={
                 "sensor_id": sensor_id,
                 "descriptor": descriptor,
                 "output_format": output_format,
-                "chunk_count": chunk_count,
-                "combined_record_count": len(combined_obs),
-                "saved_file": filepath,
+                "destination_path": new_file_key,
             },
         )
 
