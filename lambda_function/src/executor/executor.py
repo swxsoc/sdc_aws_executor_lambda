@@ -22,7 +22,7 @@ from astropy.timeseries import TimeSeries
 
 from sdc_aws_utils.aws import push_science_file
 from sdc_aws_utils.config import parser as science_filename_parser
-from swxsoc_reach import download_UDL_reach_to_file
+from swxsoc_reach.net.udl import download_UDL_reach_to_file
 from swxsoc import log
 from swxsoc.util import util
 
@@ -299,6 +299,18 @@ class Executor:
         delay_seconds = int(os.environ.get("REACH_DELAY_SECONDS", "7200"))
         window_seconds = int(os.environ.get("REACH_WINDOW_SECONDS", "600"))
         output_dir = os.environ.get("REACH_OUTPUT_DIR", "/tmp")
+
+        log.info(
+            "Starting REACH import_UDL_REACH_to_s3",
+            extra={
+                "sensor_id": sensor_id,
+                "descriptor": descriptor,
+                "output_format": output_format,
+                "delay_seconds": delay_seconds,
+                "window_seconds": window_seconds,
+                "output_dir": output_dir,
+            },
+        )
 
         # Download REACH Data to the Specific Folder
         downloaded_path = download_UDL_reach_to_file(
