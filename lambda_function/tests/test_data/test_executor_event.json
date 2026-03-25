@@ -1,0 +1,7 @@
+{
+  "resources": [
+    "arn:aws:events:us-east-2:123456789012:rule/import_UDL_REACH_to_s3"
+  ],
+  "detail-type": "Scheduled Event",
+  "source": "aws.events"
+}

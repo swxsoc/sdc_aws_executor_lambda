@@ -50,10 +50,70 @@ Manages solar flare annotations:
 ### import_UDL_REACH_to_timestream
 Likely a temporary addition. Gets REACH data from the UDL. Grabs data from 2 hours ago to 1 hour ago.
 
+### download_UDL_REACH_to_file
+Downloads REACH data from UDL in chunked requests, combines all records, and writes a single output file to Lambda storage for upload.
+
+Suggested daily pattern:
+- Set `REACH_WINDOW_SECONDS=86400` for one day per run
+- Schedule one daily EventBridge trigger
+- Upload the single combined artifact produced by each run
+
+Recommended environment variables for this function:
+- `REACH_SENSOR_ID` (default `ALL`)
+    - Defines the Sensors to query from UDL
+- `REACH_DESCRIPTOR` (default `QUICKLOOK`)
+    - Defined the data product to query from UDL
+- `REACH_FILE_FORMAT` (default `json`)
+    - Defines the File format to save/upload data as. Options are `json` and `csv`. 
+- `REACH_DELAY_SECONDS` (default `7200`)
+    - Time offset from `datetime.now(timezone.utc)` to *end* data download
+- `REACH_WINDOW_SECONDS` (default `600`)
+    - Time wondow from end. 
+    - The start ends up being `datetime.now(timezone.utc) - REACH_DELAY_SECONDS - REACH_WINDOW_SECONDS`
+- `REACH_OUTPUT_DIR` (default `/tmp`)
+    - Where in the Lambda Container to save the file. We should not need to change this at all. 
+- `REACH_DESTINATION_BUCKET` (default `dev-swxsoc-pipeline-incoming`)
+    - Bucket name to copy the file to. 
 
 ### import_stix_to_timestream
 Gets solar orbiter stix quicklook lightcurve data.
 
+## Buildig & Running Locally
+
+The image can be built and run locally. You can specify the build base image at runtime. The base image, at the time of writing this, defaults to the `padre-swsoc-docker-lambda-base:latest` in AWS. 
+
+```sh
+export BASE_IMAGE=public.ecr.aws/w5r9l1c8/padre-swsoc-docker-lambda-base:latest
+export IMAGE_NAME=swxsoc_sdc_aws_executor_lambda
+export VERSION=`date -u +"%Y%m%d%H%M%S"`
+
+# Build the Image
+docker build --build-arg BASE_IMAGE=$BASE_IMAGE -t $IMAGE_NAME:latest lambda_function/.
+# Tag the Image with a Version
+docker tag $IMAGE_NAME:latest $IMAGE_NAME:$VERSION
+```
+
+You can run the image, specifying access tokens to connedted services as needed. 
+You can get the Grafafana and UDL ARN from AWS.
+
+```sh
+docker run -p 9000:8080 \
+  -e REACH_DESTINATION_BUCKET="dev-swxsoc-pipeline-incoming" \
+  -e SECRET_ARN_GRAFANA=$SECRET_ARN_GRAFANA$ \
+  -e SECRET_ARN_UDL=$SECRET_ARN_UDL \
+  -e AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID \
+  -e AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY \
+  -e AWS_SESSION_TOKEN=$AWS_SESSION_TOKEN \
+  swxsoc_sdc_aws_executor_lambda:latest
+```
+
+Finally, you can invoke the executor lambda to run locally, from a separate terminal. 
+You can customize the executor function you wish to run within the JSON payload. 
+
+```sh
+curl -XPOST "http://localhost:9000/2015-03-31/functions/function/invocations" \
+  -d @lambda_function/tests/test_data/test_executor_event.json
+```
 
 ## Error Handling
 - HTTP 200: Successful execution
