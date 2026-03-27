@@ -74,6 +74,8 @@ Recommended environment variables for this function:
     - Where in the Lambda Container to save the file. We should not need to change this at all. 
 - `REACH_DESTINATION_BUCKET` (default `dev-swxsoc-pipeline-incoming`)
     - Bucket name to copy the file to. 
+- `REACH_UDL_MAX_CONCURRENT_REQUESTS` (default `5`)
+    - Maximum number of cuncurrent workers to pull data from UDL.
 
 ### import_stix_to_timestream
 Gets solar orbiter stix quicklook lightcurve data.
