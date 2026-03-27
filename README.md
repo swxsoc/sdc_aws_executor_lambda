@@ -90,7 +90,7 @@ export IMAGE_NAME=swxsoc_sdc_aws_executor_lambda
 export VERSION=`date -u +"%Y%m%d%H%M%S"`
 
 # Build the Image
-docker build --build-arg BASE_IMAGE=$BASE_IMAGE -t $IMAGE_NAME:latest lambda_function/.
+docker build --no-cache --build-arg BASE_IMAGE=$BASE_IMAGE -t $IMAGE_NAME:latest lambda_function/.
 # Tag the Image with a Version
 docker tag $IMAGE_NAME:latest $IMAGE_NAME:$VERSION
 ```
