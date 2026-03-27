@@ -74,6 +74,8 @@ Recommended environment variables for this function:
     - Where in the Lambda Container to save the file. We should not need to change this at all. 
 - `REACH_DESTINATION_BUCKET` (default `dev-swxsoc-pipeline-incoming`)
     - Bucket name to copy the file to. 
+- `REACH_UDL_MAX_CONCURRENT_REQUESTS` (default `5`)
+    - Maximum number of cuncurrent workers to pull data from UDL.
 
 ### import_stix_to_timestream
 Gets solar orbiter stix quicklook lightcurve data.
@@ -88,7 +90,7 @@ export IMAGE_NAME=swxsoc_sdc_aws_executor_lambda
 export VERSION=`date -u +"%Y%m%d%H%M%S"`
 
 # Build the Image
-docker build --build-arg BASE_IMAGE=$BASE_IMAGE -t $IMAGE_NAME:latest lambda_function/.
+docker build --no-cache --build-arg BASE_IMAGE=$BASE_IMAGE -t $IMAGE_NAME:latest lambda_function/.
 # Tag the Image with a Version
 docker tag $IMAGE_NAME:latest $IMAGE_NAME:$VERSION
 ```
