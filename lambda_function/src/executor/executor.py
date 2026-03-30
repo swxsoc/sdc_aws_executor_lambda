@@ -299,7 +299,7 @@ class Executor:
         window_seconds = int(os.environ.get("REACH_WINDOW_SECONDS", "600"))
         output_dir = os.environ.get("REACH_OUTPUT_DIR", "/tmp")
         max_concurrent_requests = int(
-            os.environ.get("REACH_UDL_MAX_CONCURRENT_REQUESTS", "5")
+            os.environ.get("REACH_UDL_MAX_CONCURRENT_REQUESTS", "8")
         )
 
         log.info(
