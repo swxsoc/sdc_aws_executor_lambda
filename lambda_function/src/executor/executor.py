@@ -10,7 +10,6 @@ import re
 import shutil
 import subprocess
 import tempfile
-from datetime import datetime, timedelta, timezone
 from typing import Any, Dict
 
 import boto3
@@ -255,7 +254,6 @@ class Executor:
         else:
             log.info(f"No response received from {url}")
 
-
     @staticmethod
     def _upload_reach_file_to_s3(filepath: str) -> str:
         """
@@ -263,6 +261,7 @@ class Executor:
         """
         os.environ["SWXSOC_MISSION"] = "swxsoc_pipeline"
         import swxsoc
+
         swxsoc._reconfigure()  # Updates Mission Config to use swxsoc_pipeline settings
 
         destination_bucket = os.environ.get(
@@ -299,6 +298,9 @@ class Executor:
         delay_seconds = int(os.environ.get("REACH_DELAY_SECONDS", "7200"))
         window_seconds = int(os.environ.get("REACH_WINDOW_SECONDS", "600"))
         output_dir = os.environ.get("REACH_OUTPUT_DIR", "/tmp")
+        max_concurrent_requests = int(
+            os.environ.get("REACH_UDL_MAX_CONCURRENT_REQUESTS", "8")
+        )
 
         log.info(
             "Starting REACH import_UDL_REACH_to_s3",
@@ -309,6 +311,7 @@ class Executor:
                 "delay_seconds": delay_seconds,
                 "window_seconds": window_seconds,
                 "output_dir": output_dir,
+                "max_concurrent_requests": max_concurrent_requests,
             },
         )
 
@@ -321,6 +324,7 @@ class Executor:
             delay_seconds=delay_seconds,
             window_seconds=window_seconds,
             output_dir=output_dir,
+            max_concurrent_requests=max_concurrent_requests,
         )
 
         new_file_key = Executor._upload_reach_file_to_s3(downloaded_path)
