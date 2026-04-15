@@ -366,7 +366,7 @@ class Executor:
             goes_json_data = pd.read_json(
                 "https://services.swpc.noaa.gov/json/goes/primary/xrays-6-hour.json"
             )
-            last_hour = Time.now() - TimeDelta(6 * u.hour)
+            last_hour = Time.now() - TimeDelta(1 * u.hour)
 
             goes_short = goes_json_data[goes_json_data["energy"] == "0.05-0.4nm"]
             goes_long = goes_json_data[goes_json_data["energy"] == "0.1-0.8nm"]
