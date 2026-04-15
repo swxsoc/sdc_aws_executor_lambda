@@ -301,6 +301,13 @@ class Executor:
         max_concurrent_requests = int(
             os.environ.get("REACH_UDL_MAX_CONCURRENT_REQUESTS", "8")
         )
+        initial_rate = float(os.environ.get("REACH_UDL_INITIAL_RATE", "5.0"))
+        additive_increase = float(os.environ.get("REACH_UDL_ADDITIVE_INCREASE", "1.0"))
+        multiplicative_decrease = float(
+            os.environ.get("REACH_UDL_MULTIPLICATIVE_DECREASE", "0.5")
+        )
+        min_rate = float(os.environ.get("REACH_UDL_MIN_RATE", "5.0"))
+        max_rate = float(os.environ.get("REACH_UDL_MAX_RATE", "25.0"))
 
         log.info(
             "Starting REACH import_UDL_REACH_to_s3",
@@ -312,6 +319,11 @@ class Executor:
                 "window_seconds": window_seconds,
                 "output_dir": output_dir,
                 "max_concurrent_requests": max_concurrent_requests,
+                "initial_rate": initial_rate,
+                "additive_increase": additive_increase,
+                "multiplicative_decrease": multiplicative_decrease,
+                "min_rate": min_rate,
+                "max_rate": max_rate,
             },
         )
 
@@ -325,6 +337,11 @@ class Executor:
             window_seconds=window_seconds,
             output_dir=output_dir,
             max_concurrent_requests=max_concurrent_requests,
+            initial_rate=initial_rate,
+            additive_increase=additive_increase,
+            multiplicative_decrease=multiplicative_decrease,
+            min_rate=min_rate,
+            max_rate=max_rate,
         )
 
         new_file_key = Executor._upload_reach_file_to_s3(downloaded_path)
@@ -349,7 +366,7 @@ class Executor:
             goes_json_data = pd.read_json(
                 "https://services.swpc.noaa.gov/json/goes/primary/xrays-6-hour.json"
             )
-            last_hour = Time.now() - TimeDelta(1 * u.hour)
+            last_hour = Time.now() - TimeDelta(6 * u.hour)
 
             goes_short = goes_json_data[goes_json_data["energy"] == "0.05-0.4nm"]
             goes_long = goes_json_data[goes_json_data["energy"] == "0.1-0.8nm"]

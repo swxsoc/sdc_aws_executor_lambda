@@ -76,6 +76,16 @@ Recommended environment variables for this function:
     - Bucket name to copy the file to. 
 - `REACH_UDL_MAX_CONCURRENT_REQUESTS` (default `8`)
     - Maximum number of cuncurrent workers to pull data from UDL.
+- `REACH_UDL_INITIAL_RATE` (default `5.0`)
+    - AIMD rate controller starting request rate in requests per second.
+- `REACH_UDL_ADDITIVE_INCREASE` (default `1.0`)
+    - AIMD rate controller additive increase — amount added to the rate after each successful request.
+- `REACH_UDL_MULTIPLICATIVE_DECREASE` (default `0.5`)
+    - AIMD rate controller multiplicative decrease — factor to multiply the rate by after a 429 response (0 < value < 1).
+- `REACH_UDL_MIN_RATE` (default `5.0`)
+    - AIMD rate controller floor — request rate never goes below this value.
+- `REACH_UDL_MAX_RATE` (default `25.0`)
+    - AIMD rate controller ceiling — request rate never exceeds this value.
 
 ### import_stix_to_timestream
 Gets solar orbiter stix quicklook lightcurve data.
@@ -106,6 +116,7 @@ docker run -p 9000:8080 \
   -e AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID \
   -e AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY \
   -e AWS_SESSION_TOKEN=$AWS_SESSION_TOKEN \
+  -e LAMBDA_ENVIRONMENT="PRODUCTION" \
   swxsoc_sdc_aws_executor_lambda:latest
 ```
 
