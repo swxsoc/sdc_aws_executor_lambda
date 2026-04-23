@@ -86,7 +86,6 @@ class Executor:
             "import_GOES_data_to_timestream": self.import_GOES_data_to_timestream,
             "create_GOES_data_annotations": self.create_GOES_data_annotations,
             "generate_cloc_report_and_upload": self.generate_cloc_report_and_upload,
-            "import_UDL_REACH_to_timestream": self.import_UDL_REACH_to_timestream,
             "import_UDL_REACH_to_s3": self.import_UDL_REACH_to_s3,
             "import_stix_to_timestream": self.import_stix_to_timestream,
             "get_padre_orbit_data": self.get_padre_orbit_data,
@@ -182,77 +181,6 @@ class Executor:
                 )
         else:
             log.warning("No Padre orbit data to record")
-
-    @staticmethod
-    def import_UDL_REACH_to_timestream() -> None:
-        """
-        Imports data from UDL, grabs some REACH data and imports to Timestream
-        """
-        basicAuth = os.environ["basicauth".upper()]
-        baseurl = "https://unifieddatalibrary.com/udl/spaceenvobservation"
-
-        tdelay = TimeDelta(2 * u.hour)
-        dt = TimeDelta(10 * u.minute)
-        start_time = Time.now() - tdelay
-        end_time = start_time + dt
-        obtime = start_time.strftime("%Y-%m-%dT%H:%M:%S") + ".000Z.."
-        obtime += end_time.strftime("%Y-%m-%dT%H:%M:%S") + ".000Z"
-        sensor = "REACH-171"
-
-        url = f"{baseurl}?obTime={obtime}&source=Aerospace&dataMode=REAL&descriptor=QUICKLOOK&sort=obTime"
-        log.info(f"Requesting REACH data from UDL at {url}")
-        response = requests.get(url, headers={"Authorization": basicAuth}, verify=False)
-        if response:
-            json_data = response.json()
-            reachids = set([t["idSensor"] for t in json_data])
-            log.info(
-                f"Received {len(json_data)} entries with {len(reachids)} different reach ids"
-            )
-            for this_reachid in reachids:
-                these_reach_data = [
-                    this_json
-                    for this_json in json_data
-                    if this_json["idSensor"] == this_reachid
-                ]
-                available_obs = set(
-                    [t["seoList"][0]["obDescription"] for t in these_reach_data]
-                )
-                print(f"{this_reachid} {available_obs}")
-                for i, this_ob in enumerate(available_obs):
-                    times = [
-                        Time(t["obTime"])
-                        for t in these_reach_data
-                        if t["seoList"][0]["obDescription"] == this_ob
-                    ]
-                    if i == 0:
-                        ts = TimeSeries(time=times)
-                        key_list = ["lat", "lon", "alt"]
-                        for this_key in key_list:
-                            ts[this_key] = [
-                                t[this_key]
-                                for t in these_reach_data
-                                if t["seoList"][0]["obDescription"] == this_ob
-                            ]
-                    ob_value = [
-                        t["seoList"][0]["obValue"]
-                        for t in these_reach_data
-                        if t["seoList"][0]["obDescription"] == this_ob
-                    ]
-                    # change name from DOSE2 (Flavor W) in rad/second to DOSE2-W
-                    col_name = f"{this_ob[0:5]}-{this_ob[14]}"
-                    ts[col_name] = (
-                        ob_value  # this assumes that there are the same number of measurements for each flavor
-                    )
-                ts.meta = {"reachID": this_reachid}
-                ts.meta.update(
-                    {"observatoryName": these_reach_data[0]["observatoryName"]}
-                )
-                if len(ts) > 0:
-                    util.record_timeseries(
-                        ts, ts_name="REACH", instrument_name=this_reachid
-                    )
-        else:
-            log.info(f"No response received from {url}")
 
     @staticmethod
     def _upload_reach_file_to_s3(filepath: str) -> str:
