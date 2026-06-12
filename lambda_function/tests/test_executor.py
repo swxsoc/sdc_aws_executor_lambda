@@ -156,9 +156,10 @@ def test_import_UDL_REACH_to_s3(monkeypatch, tmp_path) -> None:
     assert download_call["max_concurrent_requests"] == 4
     assert download_call["output_dir"] == str(tmp_path)
     assert len(upload_calls) == 2
-    assert upload_calls[0]["destination_bucket"] == ["unit-test-bucket-dev"]
-    assert upload_calls[1]["destination_bucket"] == ["unit-test-bucket-prod"]
+    assert upload_calls[0]["destination_bucket"] == "unit-test-bucket-dev"
+    assert upload_calls[1]["destination_bucket"] == "unit-test-bucket-prod"
     assert upload_calls[0]["calibrated_filename"].endswith(".csv")
+    assert upload_calls[1]["calibrated_filename"].endswith(".csv")
 
 
 def test_import_GOES_data_to_timestream(monkeypatch) -> None:
