@@ -138,8 +138,8 @@ def test_import_UDL_REACH_to_s3(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("REACH_WINDOW_SECONDS", "1200")
     monkeypatch.setenv("REACH_UDL_MAX_CONCURRENT_REQUESTS", "4")
     monkeypatch.setenv("REACH_OUTPUT_DIR", str(tmp_path))
-    monkeypatch.setenv("REACH_DESTINATION_BUCKET_PROD", "unit-test-bucket-dev")
-    monkeypatch.setenv("REACH_DESTINATION_BUCKET_DEV", "unit-test-bucket-prod")
+    monkeypatch.setenv("REACH_DESTINATION_BUCKET_PROD", "unit-test-bucket-prod")
+    monkeypatch.setenv("REACH_DESTINATION_BUCKET_DEV", "unit-test-bucket-dev")
 
     monkeypatch.setattr(
         "src.executor.executor.download_UDL_reach_to_file",
