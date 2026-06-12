@@ -113,7 +113,8 @@ Recommended environment variables:
 - ``REACH_DELAY_SECONDS`` (default: ``7200``): offset from ``datetime.now(timezone.utc)`` to the end time.
 - ``REACH_WINDOW_SECONDS`` (default: ``600``): window size before end time.
 - ``REACH_OUTPUT_DIR`` (default: ``/tmp``): Lambda container directory for output files.
-- ``REACH_DESTINATION_BUCKET`` (default: ``dev-swxsoc-pipeline-incoming``): bucket to upload output files.
+- ``REACH_DESTINATION_BUCKET_DEV`` (default: ``dev-swxsoc-pipeline-incoming``): dev bucket to upload output files.
+- ``REACH_DESTINATION_BUCKET_PROD`` (default: ``swxsoc-pipeline-incoming``): prod bucket to upload output files.
 - ``REACH_UDL_MAX_CONCURRENT_REQUESTS`` (default: ``8``): max concurrent workers for UDL pulls.
 - ``REACH_UDL_INITIAL_RATE`` (default: ``5.0``): AIMD starting request rate (requests/second).
 - ``REACH_UDL_ADDITIVE_INCREASE`` (default: ``1.0``): AIMD additive increase after successful requests.

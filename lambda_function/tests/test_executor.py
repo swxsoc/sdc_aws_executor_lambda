@@ -138,7 +138,8 @@ def test_import_UDL_REACH_to_s3(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("REACH_WINDOW_SECONDS", "1200")
     monkeypatch.setenv("REACH_UDL_MAX_CONCURRENT_REQUESTS", "4")
     monkeypatch.setenv("REACH_OUTPUT_DIR", str(tmp_path))
-    monkeypatch.setenv("REACH_DESTINATION_BUCKET", "unit-test-bucket")
+    monkeypatch.setenv("REACH_DESTINATION_BUCKET_DEV", "unit-test-bucket-dev")
+    monkeypatch.setenv("REACH_DESTINATION_BUCKET_PROD", "unit-test-bucket-prod")
 
     monkeypatch.setattr(
         "src.executor.executor.download_UDL_reach_to_file",
@@ -154,8 +155,9 @@ def test_import_UDL_REACH_to_s3(monkeypatch, tmp_path) -> None:
     assert download_call["window_seconds"] == 1200
     assert download_call["max_concurrent_requests"] == 4
     assert download_call["output_dir"] == str(tmp_path)
-    assert len(upload_calls) == 1
-    assert upload_calls[0]["destination_bucket"] == "unit-test-bucket"
+    assert len(upload_calls) == 2
+    assert upload_calls[0]["destination_bucket"] == "unit-test-bucket-dev"
+    assert upload_calls[1]["destination_bucket"] == "unit-test-bucket-prod"
     assert upload_calls[0]["calibrated_filename"].endswith(".csv")
 
 
