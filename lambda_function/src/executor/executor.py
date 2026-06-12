@@ -210,7 +210,7 @@ class Executor:
             log.warning("No Padre orbit data to record")
 
     @staticmethod
-    def _upload_reach_file_to_s3(filepath: str) -> str:
+    def _upload_reach_file_to_s3(filepath: str) -> list[str]:
         """
         Upload a downloaded REACH file to the configured destination bucket.
 
@@ -228,28 +228,34 @@ class Executor:
         import swxsoc
 
         swxsoc._reconfigure()  # Updates Mission Config to use swxsoc_pipeline settings
-
-        destination_bucket = os.environ.get(
-            "REACH_DESTINATION_BUCKET", "dev-swxsoc-pipeline-incoming"
-        )
         calibrated_filename = os.path.basename(filepath)
 
-        # Push the file to S3 using sdc_aws_utils helper
-        new_file_key = push_science_file(
-            science_filename_parser=science_filename_parser,
-            destination_bucket=destination_bucket,
-            calibrated_filename=calibrated_filename,
-        )
+        destination_buckets = [
+            os.environ.get(
+                "REACH_DESTINATION_BUCKET_DEV", "dev-swxsoc-pipeline-incoming"
+            ),
+            os.environ.get("REACH_DESTINATION_BUCKET_PROD", "swxsoc-pipeline-incoming"),
+        ]
 
-        log.info(
-            "Uploaded REACH file to S3",
-            extra={
-                "filepath": filepath,
-                "destination_bucket": destination_bucket,
-                "new_file_key": new_file_key,
-            },
-        )
-        return new_file_key
+        new_file_keys = []
+        for this_destination_bucket in destination_buckets:
+            # Push the file to S3 using sdc_aws_utils helper
+            new_file_keys.append(
+                push_science_file(
+                    science_filename_parser=science_filename_parser,
+                    destination_bucket=this_destination_bucket,
+                    calibrated_filename=calibrated_filename,
+                )
+            )
+            log.info(
+                "Uploading REACH file to S3",
+                extra={
+                    "filepath": filepath,
+                    "destination_bucket": this_destination_bucket,
+                },
+            )
+
+        return new_file_keys
 
     @staticmethod
     def import_UDL_REACH_to_s3() -> None:
@@ -309,16 +315,17 @@ class Executor:
             max_rate=max_rate,
         )
 
-        new_file_key = Executor._upload_reach_file_to_s3(downloaded_path)
-        log.info(
-            "Completed REACH combined download-to-file run",
-            extra={
-                "sensor_id": sensor_id,
-                "descriptor": descriptor,
-                "output_format": output_format,
-                "destination_path": new_file_key,
-            },
-        )
+        new_file_keys = Executor._upload_reach_file_to_s3(downloaded_path)
+        for this_new_file_key in new_file_keys:
+            log.info(
+                "REACH file uploaded to S3",
+                extra={
+                    "sensor_id": sensor_id,
+                    "descriptor": descriptor,
+                    "output_format": output_format,
+                    "destination_path": this_new_file_key,
+                },
+            )
 
     @staticmethod
     def import_GOES_data_to_timestream() -> None:
