@@ -6,7 +6,7 @@ import os
 import boto3
 import numpy as np
 import pytest
-from astropy.time import Time
+from astropy.time import Time, TimeDelta
 from src.executor.executor import Executor
 
 
@@ -111,11 +111,11 @@ def test_get_padre_orbit_data(monkeypatch) -> None:
 
 
 def test_import_UDL_REACH_to_s3(monkeypatch, tmp_path) -> None:
-    """REACH import uses configured small window and uploads via mocked push function."""
+    """REACH import snaps to a midnight-aligned day window and uploads via mocked push."""
     download_call = {}
     upload_calls = []
 
-    def fake_download_udl_reach_to_file(**kwargs):
+    def fake_download_UDL_reach_window(**kwargs):
         download_call.update(kwargs)
         output_file = tmp_path / "REACH-ALL_20250603T000000_20250603T002000.csv"
         output_file.write_text("time,value\n2025-06-03T00:00:00Z,1\n")
@@ -134,16 +134,16 @@ def test_import_UDL_REACH_to_s3(monkeypatch, tmp_path) -> None:
         return f"mock/{calibrated_filename}"
 
     monkeypatch.setenv("BASICAUTH", "mock-auth-token")
-    monkeypatch.setenv("REACH_DELAY_SECONDS", "86400")
-    monkeypatch.setenv("REACH_WINDOW_SECONDS", "1200")
+    monkeypatch.setenv("REACH_WINDOW_END_DAYS_AGO", "1")
+    monkeypatch.setenv("REACH_WINDOW_DAYS", "1")
     monkeypatch.setenv("REACH_UDL_MAX_CONCURRENT_REQUESTS", "4")
     monkeypatch.setenv("REACH_OUTPUT_DIR", str(tmp_path))
     monkeypatch.setenv("REACH_DESTINATION_BUCKET_PROD", "unit-test-bucket-prod")
     monkeypatch.setenv("REACH_DESTINATION_BUCKET_DEV", "unit-test-bucket-dev")
 
     monkeypatch.setattr(
-        "src.executor.executor.download_UDL_reach_to_file",
-        fake_download_udl_reach_to_file,
+        "src.executor.executor.download_UDL_reach_window",
+        fake_download_UDL_reach_window,
     )
     monkeypatch.setattr(
         "src.executor.executor.push_science_file", fake_push_science_file
@@ -151,8 +151,18 @@ def test_import_UDL_REACH_to_s3(monkeypatch, tmp_path) -> None:
 
     Executor.import_UDL_REACH_to_s3()
 
-    assert download_call["delay_seconds"] == 86400
-    assert download_call["window_seconds"] == 1200
+    start_time = download_call["start_time"]
+    end_time = download_call["end_time"]
+
+    # Window edges are snapped to UTC midnight.
+    assert start_time.iso.endswith("00:00:00.000")
+    assert end_time.iso.endswith("00:00:00.000")
+
+    # End is one day before today's UTC midnight; window is one day long.
+    expected_end = Time(Time.now().iso[0:10]) - TimeDelta(1, format="jd")
+    assert (end_time - expected_end).to_value("sec") == pytest.approx(0.0, abs=1.0)
+    assert (end_time - start_time).to_value("jd") == pytest.approx(1.0)
+
     assert download_call["max_concurrent_requests"] == 4
     assert download_call["output_dir"] == str(tmp_path)
     assert len(upload_calls) == 2

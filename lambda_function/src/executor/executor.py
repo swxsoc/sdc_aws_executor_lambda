@@ -22,7 +22,7 @@ from sdc_aws_utils.aws import push_science_file
 from sdc_aws_utils.config import parser as science_filename_parser
 from swxsoc import log
 from swxsoc.util import util
-from swxsoc_reach.net.udl import download_UDL_reach_to_file
+from swxsoc_reach.net.udl import download_UDL_reach_window
 
 
 def handle_event(event: dict[str, Any], context: Any) -> dict[str, Any]:
@@ -261,13 +261,29 @@ class Executor:
     def import_UDL_REACH_to_s3() -> None:
         """
         Download REACH data from UDL and upload the resulting file to S3.
+
+        The query window is snapped to UTC midnight boundaries so the
+        downloaded file always covers a whole midnight-to-midnight day,
+        independent of the exact second the Lambda happens to run. The
+        window is driven by two day-based offsets measured from UTC
+        midnight of the current run day:
+
+        - ``REACH_WINDOW_END_DAYS_AGO``: number of days before today's
+          UTC midnight at which the window ends (default ``1`` -> the
+          window ends at the start of yesterday).
+        - ``REACH_WINDOW_DAYS``: length of the window in whole days
+          (default ``1``).
+
+        With the defaults and the ``cron(0 6 * * ? *)`` UTC schedule this
+        yields ``[today 00:00 - 2 days, today 00:00 - 1 day)``: all of the
+        day before yesterday (54 hours ago to 30 hours ago at run time).
         """
         basic_auth = os.environ["basicauth".upper()]
         sensor_id = os.environ.get("REACH_SENSOR_ID", "ALL")
         descriptor = os.environ.get("REACH_DESCRIPTOR", "QUICKLOOK")
         output_format = os.environ.get("REACH_FILE_FORMAT", "csv").lower()
-        delay_seconds = int(os.environ.get("REACH_DELAY_SECONDS", "7200"))
-        window_seconds = int(os.environ.get("REACH_WINDOW_SECONDS", "600"))
+        end_days_ago = int(os.environ.get("REACH_WINDOW_END_DAYS_AGO", "1"))
+        window_days = int(os.environ.get("REACH_WINDOW_DAYS", "1"))
         output_dir = os.environ.get("REACH_OUTPUT_DIR", "/tmp")
         max_concurrent_requests = int(
             os.environ.get("REACH_UDL_MAX_CONCURRENT_REQUESTS", "8")
@@ -280,14 +296,22 @@ class Executor:
         min_rate = float(os.environ.get("REACH_UDL_MIN_RATE", "5.0"))
         max_rate = float(os.environ.get("REACH_UDL_MAX_RATE", "25.0"))
 
+        # Snap to UTC midnight of the current run day so the window edges
+        # land exactly on midnight instead of drifting with the run second.
+        midnight_today = Time(Time.now().iso[0:10])
+        end_time = midnight_today - TimeDelta(end_days_ago * u.day)
+        start_time = end_time - TimeDelta(window_days * u.day)
+
         log.info(
             "Starting REACH import_UDL_REACH_to_s3",
             extra={
                 "sensor_id": sensor_id,
                 "descriptor": descriptor,
                 "output_format": output_format,
-                "delay_seconds": delay_seconds,
-                "window_seconds": window_seconds,
+                "end_days_ago": end_days_ago,
+                "window_days": window_days,
+                "start_time": start_time.isot,
+                "end_time": end_time.isot,
                 "output_dir": output_dir,
                 "max_concurrent_requests": max_concurrent_requests,
                 "initial_rate": initial_rate,
@@ -299,13 +323,13 @@ class Executor:
         )
 
         # Download REACH Data to the Specific Folder
-        downloaded_path = download_UDL_reach_to_file(
+        downloaded_path = download_UDL_reach_window(
             auth_token=basic_auth,
             sensor_id=sensor_id,
             descriptor=descriptor,
             output_format=output_format,
-            delay_seconds=delay_seconds,
-            window_seconds=window_seconds,
+            start_time=start_time,
+            end_time=end_time,
             output_dir=output_dir,
             max_concurrent_requests=max_concurrent_requests,
             initial_rate=initial_rate,
