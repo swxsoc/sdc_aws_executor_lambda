@@ -149,8 +149,7 @@ Building and Running Locally
 ----------------------------
 
 The container image can be built and run locally. You can specify the base image at runtime.
-At the time of writing, the base image defaults to
-``padre-swsoc-docker-lambda-base:latest`` in AWS.
+At the time of writing, the base image defaults to ``padre-swsoc-docker-lambda-base:latest`` in AWS.
 
 .. code-block:: sh
 
@@ -170,7 +169,8 @@ You can retrieve the Grafana and UDL ARNs from AWS.
 .. code-block:: sh
 
     docker run -p 9000:8080 \
-      -e REACH_DESTINATION_BUCKET="dev-swxsoc-pipeline-incoming" \
+      -e REACH_DESTINATION_BUCKET_DEV="dev-swxsoc-pipeline-incoming" \
+      -e REACH_DESTINATION_BUCKET_PROD="swxsoc-pipeline-incoming" \
       -e SECRET_ARN_GRAFANA=$SECRET_ARN_GRAFANA \
       -e SECRET_ARN_UDL=$SECRET_ARN_UDL \
       -e AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID \
