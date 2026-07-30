@@ -18,10 +18,11 @@ import requests
 from astropy import units as u
 from astropy.time import Time, TimeDelta
 from astropy.timeseries import TimeSeries
-from sdc_aws_utils.aws import push_science_file
-from sdc_aws_utils.config import parser as science_filename_parser
 from swxsoc import log
-from swxsoc.util import util
+from swxsoc.db.timeseries import record_timeseries
+from swxsoc.io.s3 import push_science_file
+from swxsoc.util.grafana import create_annotation
+from swxsoc.util.util import parse_science_filename
 from swxsoc_reach.net.udl import download_UDL_reach_window
 
 
@@ -158,7 +159,7 @@ class Executor:
             log.info(
                 f"Received stix data from {stix_ts.time[0]} to {stix_ts.time[-1]}, {len(stix_ts)} entries"
             )
-            util.record_timeseries(stix_ts, ts_name="solo", instrument_name="stix")
+            record_timeseries(stix_ts, ts_name="solo", instrument_name="stix")
         else:
             log.info("No stix data received.")
 
@@ -227,7 +228,7 @@ class Executor:
         os.environ["SWXSOC_MISSION"] = "swxsoc_pipeline"
         import swxsoc
 
-        swxsoc._reconfigure()  # Updates Mission Config to use swxsoc_pipeline settings
+        swxsoc.reconfigure()  # Updates Mission Config to use swxsoc_pipeline settings
         calibrated_filename = os.path.basename(filepath)
 
         destination_buckets = [
@@ -239,10 +240,10 @@ class Executor:
 
         new_file_keys = []
         for this_destination_bucket in destination_buckets:
-            # Push the file to S3 using sdc_aws_utils helper
+            # Push the file to S3 using swxsoc.io.s3 helper
             new_file_keys.append(
                 push_science_file(
-                    science_filename_parser=science_filename_parser,
+                    science_filename_parser=parse_science_filename,
                     destination_bucket=this_destination_bucket,
                     calibrated_filename=calibrated_filename,
                 )
@@ -381,15 +382,11 @@ class Executor:
             tsb_last = tsb.loc[last_hour : Time.now()]
 
             if len(tsa_last) > 0:
-                util.record_timeseries(
-                    tsa_last, ts_name="GOES", instrument_name="goes xrsa"
-                )
+                record_timeseries(tsa_last, ts_name="GOES", instrument_name="goes xrsa")
                 log.info(
                     f"GOES xrsa data import from {tsa_last.time[0]} to {tsa_last.time[-1]}, {len(tsa_last)} entries"
                 )
-                util.record_timeseries(
-                    tsb_last, ts_name="GOES", instrument_name="goes xrsb"
-                )
+                record_timeseries(tsb_last, ts_name="GOES", instrument_name="goes xrsb")
                 log.info(
                     f"GOES xrsb data import from {tsb_last.time[0]} to {tsb_last.time[-1]}, {len(tsb_last)} entries"
                 )
@@ -434,7 +431,7 @@ class Executor:
                 annotation_text = this_event["class"]
                 tags = ["GOES XRS", "flare"]
 
-                util.create_annotation(
+                create_annotation(
                     start_time=this_event["time"],
                     end_time=this_event["end_time"],
                     text=annotation_text,
@@ -446,7 +443,7 @@ class Executor:
                 )
 
                 tags.append("peak")
-                util.create_annotation(
+                create_annotation(
                     start_time=this_event["peak_time"],
                     text=annotation_text,
                     tags=tags,
