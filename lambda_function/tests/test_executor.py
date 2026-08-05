@@ -78,7 +78,7 @@ def test_import_stix_to_timestream(monkeypatch) -> None:
     )
     # Patch the record_timeseries utility function to capture its inputs for verification
     monkeypatch.setattr(
-        "src.executor.executor.util.record_timeseries", fake_record_timeseries
+        "src.executor.executor.record_timeseries", fake_record_timeseries
     )
 
     # Invoke the function directly
@@ -180,7 +180,7 @@ def test_import_GOES_data_to_timestream(monkeypatch) -> None:
         recorded_calls.append((args, kwargs))
 
     monkeypatch.setattr(
-        "src.executor.executor.util.record_timeseries", fake_record_timeseries
+        "src.executor.executor.record_timeseries", fake_record_timeseries
     )
 
     try:
@@ -210,7 +210,7 @@ def test_create_GOES_data_annotations(monkeypatch) -> None:
         annotation_calls.append(kwargs)
 
     monkeypatch.setattr(
-        "src.executor.executor.util.create_annotation", fake_create_annotation
+        "src.executor.executor.create_annotation", fake_create_annotation
     )
 
     try:
