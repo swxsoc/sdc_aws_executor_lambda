@@ -38,7 +38,7 @@ phases:
 
     - echo Updating Deployment
     - echo ________________________________
-    # - aws codebuild start-build --project-name arn:aws:codebuild:us-east-1:$ACCOUNT_ID:project/build_padre_sdc_aws_pipeline_architecture --environment-variables-override name=CDK_ENVIRONMENT,value=$CDK_ENVIRONMENT,type=PLAINTEXT
+    - aws codebuild start-build --project-name build_hermes_sdc_aws_pipeline_architecture --region us-east-1 --environment-variables-override name=LAMBDA_PIPELINE,value=EXECUTOR,type=PLAINTEXT name=TAG,value=$VERSION,type=PLAINTEXT
 
   post_build:
     commands:
