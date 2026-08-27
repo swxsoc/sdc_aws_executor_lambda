@@ -3,6 +3,13 @@ version: 0.2
 phases:
   build:
     commands:
+    - |
+      case "${CODEBUILD_WEBHOOK_EVENT:-}" in
+        PULL_REQUEST_*)
+          echo "Pull request build: skipping image push and deployment"
+          exit 0
+          ;;
+      esac
     - ACCOUNT_ID=$(aws sts get-caller-identity --query 'Account' --output text)
     - REGION=us-east-1
     - ECR_REPO="swxsoc_sdc_aws_executor_lambda"
