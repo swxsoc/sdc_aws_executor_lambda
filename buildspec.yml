@@ -1,30 +1,112 @@
 version: 0.2
 
+env:
+  shell: bash
+
 phases:
   build:
     commands:
       - |
-        set -eu
+        set -euo pipefail
 
-        if ! git describe --tags --exact-match > /dev/null 2>&1; then
+        SOURCE_KIND=""
+        RELEASE_TAG=""
+
+        case "${CODEBUILD_WEBHOOK_TRIGGER:-}" in
+          tag/*)
+            SOURCE_KIND=tag
+            RELEASE_TAG=${CODEBUILD_WEBHOOK_TRIGGER#tag/}
+            ;;
+          branch/main)
+            SOURCE_KIND=main
+            ;;
+          pr/*|branch/*)
+            SOURCE_KIND=other
+            ;;
+          "") ;;
+          *) SOURCE_KIND=other ;;
+        esac
+
+        if [ -z "${SOURCE_KIND}" ]; then
+          case "${CODEBUILD_SOURCE_VERSION:-}" in
+            refs/tags/*)
+              SOURCE_KIND=tag
+              RELEASE_TAG=${CODEBUILD_SOURCE_VERSION#refs/tags/}
+              ;;
+            refs/heads/main|main)
+              SOURCE_KIND=main
+              ;;
+            pr/*|refs/heads/*)
+              SOURCE_KIND=other
+              ;;
+          esac
+        fi
+
+        if [ -z "${SOURCE_KIND}" ]; then
+          case "${CODEBUILD_WEBHOOK_HEAD_REF:-}" in
+            refs/tags/*)
+              SOURCE_KIND=tag
+              RELEASE_TAG=${CODEBUILD_WEBHOOK_HEAD_REF#refs/tags/}
+              ;;
+          esac
+        fi
+
+        if [ -z "${SOURCE_KIND}" ]; then
+          if RELEASE_TAG=$(git describe --tags --exact-match 2>/dev/null); then
+            SOURCE_KIND=tag
+          else
+            git fetch origin main --depth=1
+            if [ "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" ]; then
+              SOURCE_KIND=main
+            else
+              SOURCE_KIND=other
+            fi
+          fi
+        fi
+
+        if [ "${SOURCE_KIND}" = "other" ]; then
+          echo "Non-main build: skipping image push and deployment"
+          exit 0
+        fi
+
+        if [ "${SOURCE_KIND}" = "main" ]; then
           git fetch origin main --depth=1
-          if [ "$(git rev-parse HEAD)" != "$(git rev-parse origin/main)" ]; then
-            echo "Non-main build: skipping image push and deployment"
+          BUILD_SHA=${CODEBUILD_RESOLVED_SOURCE_VERSION:-$(git rev-parse HEAD)}
+          if [ "${BUILD_SHA}" != "$(git rev-parse origin/main)" ]; then
+            echo "Stale main build: skipping image push and deployment"
             exit 0
           fi
         fi
 
-        ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-        REGION=us-east-1
-        ECR_REPO=swxsoc_sdc_aws_executor_lambda
-        BASE_IMAGE=public.ecr.aws/w5r9l1c8/padre-swsoc-docker-lambda-base:latest
-        aws ecr get-login-password --region "${REGION}" | docker login --username AWS --password-stdin "${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com"
-
-        if git describe --tags --exact-match > /dev/null 2>&1; then
-          VERSION=$(git describe --tags --exact-match)
+        if [ "${SOURCE_KIND}" = "tag" ]; then
+          VERSION=${RELEASE_TAG}
         else
           VERSION=$(date -u +"%Y%m%d%H%M%S")
         fi
+
+        case "${VERSION}" in
+          ""|*[!A-Za-z0-9_.-]*)
+            echo "Invalid Docker image tag: ${VERSION:-<empty>}"
+            exit 1
+            ;;
+        esac
+        case "${VERSION}" in
+          [A-Za-z0-9_]*) ;;
+          *)
+            echo "Docker image tag must start with a letter, number, or underscore"
+            exit 1
+            ;;
+        esac
+        if [ "${#VERSION}" -gt 128 ]; then
+          echo "Docker image tag exceeds 128 characters"
+          exit 1
+        fi
+
+        ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+        REGION=${AWS_REGION:-${AWS_DEFAULT_REGION:-us-east-1}}
+        ECR_REPO=swxsoc_sdc_aws_executor_lambda
+        BASE_IMAGE=public.ecr.aws/w5r9l1c8/padre-swsoc-docker-lambda-base:latest
+        aws ecr get-login-password --region "${REGION}" | docker login --username AWS --password-stdin "${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com"
 
         FULL_ECR_REPO=${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/${ECR_REPO}
         docker build --build-arg BASE_IMAGE="${BASE_IMAGE}" -t "${FULL_ECR_REPO}:latest" lambda_function/.
@@ -34,11 +116,12 @@ phases:
 
         aws codebuild start-build \
           --project-name build_hermes_sdc_aws_pipeline_architecture \
-          --region us-east-1 \
+          --region "${REGION}" \
+          --source-version main \
           --environment-variables-override \
             name=LAMBDA_PIPELINE,value=EXECUTOR,type=PLAINTEXT \
             name=TAG,value="${VERSION}",type=PLAINTEXT
 
   post_build:
     commands:
-      - echo Build Successful - Lambda Successfully Built and Pushed to ECR
+      - echo "Build phase finished on $(date -u +%Y-%m-%dT%H:%M:%SZ)"
