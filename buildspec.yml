@@ -147,7 +147,7 @@ phases:
         docker push "${FULL_ECR_REPO}:${VERSION}"
 
         aws codebuild start-build \
-          --project-name build_hermes_sdc_aws_pipeline_architecture \
+          --project-name build_swxsoc_sdc_aws_base_architecture \
           --region "${REGION}" \
           --source-version main \
           --environment-variables-override \
