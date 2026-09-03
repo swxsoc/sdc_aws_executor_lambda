@@ -182,8 +182,11 @@ def my_new_function() -> None:
 
 The function is deployed via AWS CodeBuild using [buildspec.yml](buildspec.yml):
 - Builds a Docker image with the Lambda function
-- Pushes to private ECR (tagging by git tag or timestamp)
-- Updates Lambda function configuration to use the new image
+- Pushes an immutable git-tag or timestamp tag plus `latest` to private ECR
+- Triggers the HERMES architecture CodeBuild project so Terraform applies the
+  immutable executor image tag
+- Skips image publication and deployment for pull requests and non-main
+  branches
 
 ## Common Development Tasks
 

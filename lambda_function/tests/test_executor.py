@@ -92,22 +92,40 @@ def test_import_stix_to_timestream(monkeypatch) -> None:
 
 
 def test_get_padre_orbit_data(monkeypatch) -> None:
-    """PADRE orbit path can run with only record_orbit mocked."""
+    """PADRE orbit path downloads inputs and records the calculated orbit."""
+    downloaded_urls = []
     recorded_orbits = []
+
+    def fake_urlretrieve(url, filename):
+        downloaded_urls.append((url, filename))
+        return filename, None
 
     def fake_record_orbit(timeseries):
         recorded_orbits.append(timeseries)
 
-    # Patch the record_orbit function to capture its input for verification
-    monkeypatch.setattr("padre_craft.io.aws_db.record_orbit", fake_record_orbit)
+    class FakePadreOrbit:
+        def __init__(self, tle_path):
+            assert tle_path == "/tmp/padre_tle.csv"
+            self.timeseries = None
 
-    # Invoke the function directly
-    # NOTE: This does not mock the call to download TLE and Ephemeris data
+        def calculate(self, **kwargs):
+            assert kwargs["tstart"] < kwargs["tend"]
+            self.timeseries = [object()]
+
+    monkeypatch.setattr("urllib.request.urlretrieve", fake_urlretrieve)
+    monkeypatch.setattr("pathlib.Path.exists", lambda self: False)
+    monkeypatch.setattr("padre_craft.io.aws_db.record_orbit", fake_record_orbit)
+    monkeypatch.setattr("padre_craft.orbit.PadreOrbit", FakePadreOrbit)
+
     Executor.get_padre_orbit_data()
 
     assert os.getenv("SWXSOC_MISSION") == "padre"
-    if recorded_orbits:
-        assert len(recorded_orbits[0]) > 0
+    assert [filename for _, filename in downloaded_urls] == [
+        "/tmp/padre_tle.csv",
+        "/tmp/de421.bsp",
+    ]
+    assert len(recorded_orbits) == 1
+    assert len(recorded_orbits[0]) > 0
 
 
 def test_import_UDL_REACH_to_s3(monkeypatch, tmp_path) -> None:
