@@ -23,7 +23,25 @@ from swxsoc.db.timeseries import record_timeseries
 from swxsoc.io.s3 import push_science_file
 from swxsoc.util.grafana import create_annotation
 from swxsoc.util.util import parse_science_filename
-from swxsoc_reach.net.udl import download_UDL_reach_window
+
+# The mission the Lambda environment configured, captured before any job
+# changes it. Importing swxsoc_reach or padre_craft forces SWXSOC_MISSION to
+# their own mission and reconfigures swxsoc, and a warm container keeps that
+# environment for the next invocation; every job therefore starts from this
+# value again, and those packages are only imported by the jobs that use them.
+DEFAULT_MISSION = os.getenv("SWXSOC_MISSION")
+
+
+def download_UDL_reach_window(**kwargs: Any):
+    """
+    Download a REACH window through ``swxsoc_reach``.
+
+    The import is deferred because ``swxsoc_reach`` selects the
+    ``swxsoc_pipeline`` mission for the whole process when it is imported.
+    """
+    from swxsoc_reach.net.udl import download_UDL_reach_window as download
+
+    return download(**kwargs)
 
 
 def handle_event(event: dict[str, Any], context: Any) -> dict[str, Any]:
@@ -134,7 +152,31 @@ class Executor:
         if self.function_name not in self.function_mapping:
             raise ValueError(f"Function '{self.function_name}' is not recognized.")
         log.info(f"Executing function: {self.function_name}")
+        self.reset_mission()
         self.function_mapping[self.function_name]()
+
+    @staticmethod
+    def reset_mission() -> None:
+        """
+        Restore the mission the Lambda environment configured.
+
+        ``get_padre_orbit_data`` and ``import_UDL_REACH_to_s3`` select their
+        own mission through ``SWXSOC_MISSION`` and ``swxsoc.reconfigure()``,
+        as do the ``padre_craft`` and ``swxsoc_reach`` packages they import.
+        Without this reset a warm container would run the next GOES or STIX
+        import under that mission and record into a Timestream table that
+        belongs to it, or does not exist.
+        """
+        if os.getenv("SWXSOC_MISSION") == DEFAULT_MISSION:
+            return
+        if DEFAULT_MISSION is None:
+            os.environ.pop("SWXSOC_MISSION", None)
+        else:
+            os.environ["SWXSOC_MISSION"] = DEFAULT_MISSION
+        import swxsoc
+
+        swxsoc.reconfigure()
+        log.info(f"Mission reset to {DEFAULT_MISSION or 'the library default'}")
 
     @staticmethod
     def import_stix_to_timestream() -> None:
