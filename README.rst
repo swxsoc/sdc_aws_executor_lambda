@@ -51,7 +51,12 @@ Requirements
 Environment Variables
 ^^^^^^^^^^^^^^^^^^^^^
 
-- ``SECRET_ARN``: Secrets Manager ARN containing required credentials.
+- ``SECRET_ARN_GRAFANA``: Secrets Manager ARN containing the Grafana API
+  credentials.
+- ``SECRET_ARN_UDL``: Secrets Manager ARN containing the UDL credentials.
+
+The architecture Terraform supplies these ARNs. Secret values are read from
+Secrets Manager at runtime and must not be committed to this repository.
 
 Implementation
 --------------
@@ -144,6 +149,16 @@ Running Unit Tests
 .. code-block:: sh
 
     pytest --pyargs lambda_function/tests --cov=lambda_function/src --cov-report=html
+
+Automated Deployment
+--------------------
+
+AWS CodeBuild builds this repository as a Lambda container image and pushes an
+immutable tag plus ``latest`` to the shared executor ECR repository. A build of
+``main`` uses a UTC timestamp tag; a release-tag build uses the Git tag. The
+build then starts the HERMES architecture project with the immutable tag so
+Terraform updates the executor Lambda. Pull requests and other branches only
+run repository CI and do not push or deploy an image.
 
 Building and Running Locally
 ----------------------------
