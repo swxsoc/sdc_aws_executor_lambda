@@ -253,3 +253,40 @@ def test_create_GOES_data_annotations(monkeypatch) -> None:
         assert second_call["mission_dashboard"] == "padre"
         assert second_call["overwrite"] is True
         assert second_call["tags"] == ["GOES XRS", "flare", "peak"]
+
+
+def test_execute_resets_mission_left_by_previous_job(monkeypatch) -> None:
+    """A mission leaked from an earlier job is cleared before the next job runs."""
+    import swxsoc
+    from src.executor import executor as executor_module
+
+    reconfigured = []
+    monkeypatch.setattr(executor_module, "DEFAULT_MISSION", None)
+    monkeypatch.setattr(swxsoc, "reconfigure", lambda: reconfigured.append(True))
+    monkeypatch.setenv("SWXSOC_MISSION", "swxsoc_pipeline")
+
+    seen = {}
+    executor = Executor("import_GOES_data_to_timestream")
+    executor.function_mapping["import_GOES_data_to_timestream"] = lambda: seen.update(
+        mission=os.getenv("SWXSOC_MISSION")
+    )
+    executor.execute()
+
+    assert seen == {"mission": None}
+    assert reconfigured == [True]
+
+
+def test_execute_keeps_configured_mission(monkeypatch) -> None:
+    """A mission set by the Lambda environment is restored, not removed."""
+    import swxsoc
+    from src.executor import executor as executor_module
+
+    monkeypatch.setattr(executor_module, "DEFAULT_MISSION", "padre")
+    monkeypatch.setattr(swxsoc, "reconfigure", lambda: None)
+    monkeypatch.setenv("SWXSOC_MISSION", "swxsoc_pipeline")
+
+    executor = Executor("import_stix_to_timestream")
+    executor.function_mapping["import_stix_to_timestream"] = lambda: None
+    executor.execute()
+
+    assert os.getenv("SWXSOC_MISSION") == "padre"
