@@ -5,6 +5,7 @@ import os
 
 import boto3
 import numpy as np
+import pandas as pd
 import pytest
 from astropy.time import Time, TimeDelta
 from src.executor.executor import Executor
@@ -218,6 +219,45 @@ def test_import_GOES_data_to_timestream(monkeypatch) -> None:
             "ts_name": "GOES",
             "instrument_name": "goes xrsb",
         }
+
+
+def test_import_GOES_data_covers_the_minutes_between_runs(monkeypatch) -> None:
+    """The import window reaches back far enough to cover the previous run's tail.
+
+    The job runs hourly and NOAA publishes each minute a few minutes late, so a
+    window of exactly one hour drops the minutes that arrive after a run starts:
+    the next run's window begins after them and nothing fetches them again.
+    """
+    recorded_calls = []
+
+    def fake_record_timeseries(*args, **kwargs):
+        recorded_calls.append((args, kwargs))
+
+    now = Time.now()
+    # A minute that the previous hourly run would have been too early to see.
+    stale = now - TimeDelta(70 * 60, format="sec")
+    fresh = now - TimeDelta(5 * 60, format="sec")
+
+    rows = []
+    for stamp in (stale, fresh):
+        tag = stamp.isot[:19] + "Z"
+        rows.append({"time_tag": tag, "energy": "0.05-0.4nm", "flux": 1e-7})
+        rows.append({"time_tag": tag, "energy": "0.1-0.8nm", "flux": 2e-7})
+
+    monkeypatch.setattr(
+        "src.executor.executor.pd.read_json", lambda *a, **k: pd.DataFrame(rows)
+    )
+    monkeypatch.setattr(
+        "src.executor.executor.record_timeseries", fake_record_timeseries
+    )
+
+    Executor.import_GOES_data_to_timestream()
+
+    assert len(recorded_calls) == 2, "expected one xrsa and one xrsb record call"
+    recorded = recorded_calls[0][0][0]
+    assert len(recorded) == 2, (
+        "the window dropped the minute published after the previous run started"
+    )
 
 
 def test_create_GOES_data_annotations(monkeypatch) -> None:
