@@ -405,7 +405,14 @@ class Executor:
             goes_json_data = pd.read_json(
                 "https://services.swpc.noaa.gov/json/goes/primary/xrays-6-hour.json"
             )
-            last_hour = Time.now() - TimeDelta(1 * u.hour)
+            # NOAA publishes each minute a few minutes late, and this job runs
+            # hourly, so a window of exactly one hour ends before the most
+            # recent minutes arrive and the next run starts after them. Look
+            # back two hours so every minute is covered by two runs. Timestream
+            # deduplicates identical records, and record_timeseries logs a
+            # rejected duplicate instead of raising, so the overlap is free and
+            # a missed run backfills itself.
+            lookback_start = Time.now() - TimeDelta(2 * u.hour)
 
             goes_short = goes_json_data[goes_json_data["energy"] == "0.05-0.4nm"]
             goes_long = goes_json_data[goes_json_data["energy"] == "0.1-0.8nm"]
@@ -420,8 +427,8 @@ class Executor:
                 time=time_tags, data={"xrsb": goes_long["flux"].values * u.W / u.m**2}
             )
 
-            tsa_last = tsa.loc[last_hour : Time.now()]
-            tsb_last = tsb.loc[last_hour : Time.now()]
+            tsa_last = tsa.loc[lookback_start : Time.now()]
+            tsb_last = tsb.loc[lookback_start : Time.now()]
 
             if len(tsa_last) > 0:
                 record_timeseries(tsa_last, ts_name="GOES", instrument_name="goes xrsa")
